@@ -102,45 +102,92 @@ description: "大模型推理第二步：Transformer 整体长什么样，decode
 
 ## Transformer 块里面长什么样：先看，不拆
 
-一个块分两层子层，每层都是“先归一化、再子层、再残差”，这叫 **Pre-Norm**。
+一个块分两层子层，每层都是“先归一化、再子层、再残差”，这叫 **Pre-Norm**。下面是真的结构图，不是文字：主路在中间走，残差走右边的捷径，绕过归一化和子层，最后加回来。点图里任意一个方块。
 
-<div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<p style="font-size:16px;">x → RMSNorm → <strong>多头注意力</strong> → + x → RMSNorm → <strong>FFN</strong> → + x → 下一块</p>
-<p>点下面两个子层，看它们各干什么：</p>
-<button id="blk-attn" style="padding:8px 14px;margin:4px;cursor:pointer;">多头注意力</button>
-<button id="blk-ffn" style="padding:8px 14px;margin:4px;cursor:pointer;">FFN</button>
-<p id="blk-explain">点一个子层。</p>
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div style="display:flex;gap:16px;">
+<div style="flex:1;">
+<div style="text-align:center;font-weight:bold;">主路（数据怎么走）</div>
+<div class="blk-box" data-k="x" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;">x<br><span style="font-size:12px;">3 行 × 4 列</span></div>
+<div style="text-align:center;">↓</div>
+<div class="blk-box" data-k="norm" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#fef3c7;">RMSNorm</div>
+<div style="text-align:center;">↓</div>
+<div class="blk-box" data-k="attn" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#dbeafe;">多头注意力</div>
+<div style="text-align:center;">↓</div>
+<div class="blk-box" data-k="add1" style="border:2px solid #2563eb;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;">＋ x（残差加回来）</div>
+<div style="text-align:center;">↓</div>
+<div class="blk-box" data-k="norm2" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#fef3c7;">RMSNorm</div>
+<div style="text-align:center;">↓</div>
+<div class="blk-box" data-k="ffn" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#dcfce7;">FFN</div>
+<div style="text-align:center;">↓</div>
+<div class="blk-box" data-k="add2" style="border:2px solid #2563eb;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;">＋ x（残差加回来）</div>
+<div style="text-align:center;">↓</div>
+<div style="text-align:center;font-weight:bold;">下一块</div>
+</div>
+<div style="flex:1;">
+<div style="text-align:center;font-weight:bold;">残差捷径（x 走的路）</div>
+<div style="border:2px dashed #2563eb;border-radius:8px;padding:10px;margin:6px;">x 从上面直接下来，<strong>不经过</strong> RMSNorm，也不经过注意力 / FFN，在“＋ x”那里加回来。</div>
+<div style="text-align:center;font-size:24px;">↓</div>
+<div style="border:2px dashed #2563eb;border-radius:8px;padding:10px;margin:6px;">第一层加完，新的 x 再走一次同样的捷径，在第二层“＋ x”那里加回来。</div>
+<p style="font-size:13px;">捷径上没有任何计算，所以梯度可以沿着它从后一层直接传到前一层，不经过归一化和子层。</p>
+</div>
+</div>
+<p id="blk-explain">点图里任意一个方块。</p>
 </div>
 <script>
 (function(){
-  document.getElementById('blk-attn').addEventListener('click', function(){
-    document.getElementById('blk-explain').textContent='多头注意力：让 3 个 token 互相看。猫看吃、看鱼，吃看猫、看鱼，每个 token 都带上上下文。输入输出都是 3 行 × 4 列。';
-  });
-  document.getElementById('blk-ffn').addEventListener('click', function(){
-    document.getElementById('blk-explain').textContent='FFN：逐个 token 独立加工，不看别的 token。把注意力收集到的信息整合吸收。输入输出都是 3 行 × 4 列。';
+  var texts={
+    x:'<strong>x：</strong>块的输入，3 行 × 4 列。3 是 token 数，4 是 d_model。',
+    norm:'<strong>RMSNorm：</strong>归一化，把每一行（一个 token）的数值缩放到稳定范围，形状不变，还是 3 行 × 4 列。',
+    attn:'<strong>多头注意力：</strong>让 3 个 token 互相看。猫看吃、看鱼，吃看猫、看鱼，每个 token 都带上上下文。输入输出都是 3 行 × 4 列。',
+    add1:'<strong>＋ x：</strong>残差加法。注意力算完，把最开始的 x 加回来，逐个位置、逐个数字相加，形状不变。',
+    norm2:'<strong>RMSNorm：</strong>第二层子层前的归一化，和上面那个是两个不同的归一化层，参数不同。',
+    ffn:'<strong>FFN：</strong>逐个 token 独立加工，不看别的 token。把注意力收集到的信息整合吸收。输入输出都是 3 行 × 4 列。',
+    add2:'<strong>＋ x：</strong>第二次残差加法。FFN 算完，再把上一层的 x 加回来，形状不变，送进下一块。'
+  };
+  document.querySelectorAll('.blk-box').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('.blk-box').forEach(function(x){x.style.outline='';});
+      b.style.outline='3px solid #2563eb';
+      document.getElementById('blk-explain').innerHTML=texts[b.getAttribute('data-k')];
+    });
   });
 })();
 </script>
 
-### 残差连接：为什么要加回 x
+### 残差是怎么算的：逐个数字相加
 
-残差就是“子层算完，加回原来的 x”。
+残差就是“子层算完，加回原来的 x”，加法是逐个位置、逐个数字做的。拿一个 token 的 4 个数算一遍，点“下一步”。
 
-<div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<p>拿一个数算一遍：x = [1, 2]，子层输出 = [0.5, -0.5]</p>
-<button id="res-run" style="padding:6px 12px;cursor:pointer;">加回去看看</button>
-<p id="res-out">还没加。</p>
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<p id="res-stage-label" style="font-weight:bold;">第 0 步：原来的 x</p>
+<div id="res-visual" style="min-height:80px;padding:10px;border:1px dashed #888;border-radius:6px;"></div>
+<p id="res-explain">一个 token 的向量，4 个数。</p>
+<button id="res-prev" style="padding:6px 12px;cursor:pointer;">← 上一步</button>
+<button id="res-next" style="padding:6px 12px;cursor:pointer;">下一步 →</button>
+<button id="res-reset" style="padding:6px 12px;cursor:pointer;">重来</button>
 </div>
 <script>
 (function(){
-  var done=false;
-  document.getElementById('res-run').addEventListener('click', function(){
-    done=!done;
-    document.getElementById('res-out').textContent = done
-      ? 'x + 子层输出 = [1+0.5, 2+(-0.5)] = [1.5, 1.5]。原来的信息没丢，子层只是在上面加了一点修正。'
-      : '还没加。';
-    this.textContent = done ? '收起' : '加回去看看';
-  });
+  function row(label, vals, color){
+    return '<p style="margin:6px 0;">'+label+'</p><table style="border-collapse:collapse;text-align:center;"><tr>'+vals.map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;background:'+color+';">'+v+'</td>';}).join('')+'</tr></table>';
+  }
+  var stages=[
+    {title:'第 0 步：原来的 x', visual:row('x', ['1.0','2.0','0.5','-1.0'], '#dbeafe'), explain:'一个 token 的向量，4 个数。这是子层算之前的值，也是残差捷径上走的值。'},
+    {title:'第 1 步：子层输出', visual:row('x', ['1.0','2.0','0.5','-1.0'], '#dbeafe')+'<p style="margin:6px 0;">＋</p>'+row('子层输出', ['0.5','-0.5','1.0','0.5'], '#fef3c7'), explain:'子层（注意力或 FFN）算出来的修正量。注意：它不是替换 x，而是要加到 x 上。'},
+    {title:'第 2 步：逐个相加', visual:row('x', ['1.0','2.0','0.5','-1.0'], '#dbeafe')+'<p style="margin:6px 0;">＋</p>'+row('子层输出', ['0.5','-0.5','1.0','0.5'], '#fef3c7')+'<p style="margin:6px 0;">＝ 每个格子单独算：1.0+0.5，2.0+(-0.5)，0.5+1.0，-1.0+0.5</p>', explain:'加法是逐个格子做的：第 1 个数加第 1 个数，第 2 个加第 2 个，以此类推。位置不能错。'},
+    {title:'第 3 步：结果', visual:row('x + 子层输出', ['1.5','1.5','1.5','-0.5'], '#dcfce7'), explain:'结果是 [1.5, 1.5, 1.5, -0.5]。原来的信息没丢，子层只是在上面加了一点修正。形状还是 4 个数，不变。'}
+  ];
+  var i=0;
+  function render(){
+    document.getElementById('res-stage-label').textContent=stages[i].title;
+    document.getElementById('res-visual').innerHTML=stages[i].visual;
+    document.getElementById('res-explain').textContent=stages[i].explain;
+  }
+  document.getElementById('res-next').addEventListener('click', function(){ if(i<stages.length-1){ i++; render(); } });
+  document.getElementById('res-prev').addEventListener('click', function(){ if(i>0){ i--; render(); } });
+  document.getElementById('res-reset').addEventListener('click', function(){ i=0; render(); });
+  render();
 })();
 </script>
 
@@ -149,13 +196,54 @@ description: "大模型推理第二步：Transformer 整体长什么样，decode
 - **信息不丢**：子层算坏了，原来的 x 还在，不会越传越偏。
 - **梯度好传**：Pre-Norm 里残差路径上没有归一化，梯度可以从后一层无损地传到前一层，训练更稳定。这是 LLaMA、GPT-3 等现代大模型的标准选择。
 
-### Pre-Norm 和 Post-Norm：顺序不同
+### Pre-Norm 和 Post-Norm：并排对比图
 
-|  | Pre-Norm（现代大模型用这个） | Post-Norm（原始 Transformer 用这个） |
-| --- | --- | --- |
-| 顺序 | 先归一化，再子层，最后加残差 | 先子层，再加残差，最后归一化 |
-| 残差路径 | 没有归一化，梯度直通 | 有归一化，梯度要过归一化 |
-| 稳定性 | 更稳定，层数可以叠很深 | 层数深了容易不稳定 |
+两边都是一个子层，唯一的区别是**归一化放在哪里**。点下面任意一个方块，看它在残差路径上还是不在。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div style="display:flex;gap:16px;">
+<div style="flex:1;border:1px solid #888;border-radius:8px;padding:10px;">
+<div style="text-align:center;font-weight:bold;">Pre-Norm（现代大模型）</div>
+<div class="pn-box" data-k="pre-norm" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#fef3c7;">① RMSNorm</div>
+<div style="text-align:center;">↓</div>
+<div class="pn-box" data-k="pre-sub" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#dbeafe;">② 子层（注意力 / FFN）</div>
+<div style="text-align:center;">↓</div>
+<div class="pn-box" data-k="pre-add" style="border:2px solid #2563eb;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;">③ ＋ x（残差）</div>
+<p style="font-size:13px;color:#059669;">✓ 残差捷径上没有归一化，梯度直通。</p>
+</div>
+<div style="flex:1;border:1px solid #888;border-radius:8px;padding:10px;">
+<div style="text-align:center;font-weight:bold;">Post-Norm（原始 Transformer）</div>
+<div class="pn-box" data-k="post-sub" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#dbeafe;">① 子层（注意力 / FFN）</div>
+<div style="text-align:center;">↓</div>
+<div class="pn-box" data-k="post-add" style="border:2px solid #2563eb;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;">② ＋ x（残差）</div>
+<div style="text-align:center;">↓</div>
+<div class="pn-box" data-k="post-norm" style="border:1px solid #888;border-radius:8px;padding:10px;margin:6px;text-align:center;cursor:pointer;background:#fee2e2;">③ RMSNorm</div>
+<p style="font-size:13px;color:#dc2626;">✗ 残差加完才归一化，梯度要过归一化才能回去。</p>
+</div>
+</div>
+<p id="pn-explain">点上面任意一个方块。</p>
+</div>
+<script>
+(function(){
+  var texts={
+    'pre-norm':'<strong>Pre-Norm ①：</strong>归一化在子层前面。x 先归一化，再进子层。残差捷径从 x 直接走，不经过归一化。',
+    'pre-sub':'<strong>Pre-Norm ②：</strong>子层算的是归一化后的 x，输出再加回原来的 x。',
+    'pre-add':'<strong>Pre-Norm ③：</strong>加完就是这一层的输出，直接进下一层。没有归一化挡在残差路上。',
+    'post-sub':'<strong>Post-Norm ①：</strong>子层直接算 x，没有先归一化。',
+    'post-add':'<strong>Post-Norm ②：</strong>算完加回 x，得到的结果还要再归一化一次。',
+    'post-norm':'<strong>Post-Norm ③：</strong>归一化在残差后面。梯度从下一层回来时，要先过这个归一化，才能回到 x。层数深了，梯度就不好传，容易不稳定。'
+  };
+  document.querySelectorAll('.pn-box').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('.pn-box').forEach(function(x){x.style.outline='';});
+      b.style.outline='3px solid #2563eb';
+      document.getElementById('pn-explain').innerHTML=texts[b.getAttribute('data-k')];
+    });
+  });
+})();
+</script>
+
+一句话记区别：**Pre-Norm 是“先归一化再算”，Post-Norm 是“算完再归一化”。** 归一化在残差路径上还是在外面，决定了梯度好不好传，所以现代大模型都用 Pre-Norm。
 
 ## Decoder-only 和 Encoder-Decoder：为什么现代大模型只用前者
 
