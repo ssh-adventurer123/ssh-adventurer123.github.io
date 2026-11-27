@@ -14,6 +14,8 @@ description: "边学边记的大模型学习笔记项目，包含大模型推理
 
 ## 子项目
 
+子项目都归在 [LLM 学习笔记](/categories/llm-study-notes/) 这个分类下面：
+
 - [大模型推理](/posts/llm-study-notes-inference/)：模型拿到权重之后，是怎么一步步算出下一个词的。
 - [大模型训练](/posts/llm-study-notes-training/)：模型是怎么从数据里学到这些权重的。
 

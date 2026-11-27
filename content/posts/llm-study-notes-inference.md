@@ -1,7 +1,7 @@
 ---
 title: "大模型推理"
 date: 2026-11-27
-categories: ["projects"]
+categories: ["llm-study-notes"]
 tags: ["LLM", "大模型", "学习笔记", "推理"]
 description: "LLM 学习笔记的子项目：大模型推理。"
 ---
