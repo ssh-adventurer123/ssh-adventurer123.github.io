@@ -167,7 +167,7 @@ class Linear(torch.nn.Module):
 
 嵌入层是 Transformer 处理数据的第一步，它通过查表操作，将 token ID 映射为模型能够理解的词向量：
 
-$y = E[\text{token\_id}]$
+$y = E[\text{token id}]$
 
 其中 $E \in \mathbb{R}^{|\mathcal{V}| \times d_{model}}$ 为词向量矩阵，$|\mathcal{V}|$ 为词表大小。
 
