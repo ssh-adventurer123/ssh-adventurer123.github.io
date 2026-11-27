@@ -25,34 +25,99 @@ $y = x W^T$
 
 其中权重矩阵 $W \in \mathbb{R}^{d_{out} \times d_{in}}$。注意 W 的形状是 (d_out, d_in)，转置后才是 (d_in, d_out)，和 x 的最后一维对上。
 
-### 演示 1：点输出格子，看它怎么算出来的
+### 演示 1：矩阵乘法动画，一格一格算
 
-拿一个 token 的向量 x = [1, 2, 3, 4]，W 是 2 行 × 4 列，输出 y 是 2 个数。点 y 里任意一格。
+拿一个 token 的向量 x = [1, 2, 3, 4]，W 是 2 行 × 4 列，输出 y 是 2 个数。点“播放”看它一格一格算，也可以点“下一格”自己走。
 
 <div style="border:1px solid #888;padding:14px;border-radius:8px;">
-<p>x（1 行 × 4 列）× W^T（4 行 × 2 列）= y（1 行 × 2 列）</p>
-<div id="lin-grid"></div>
-<p id="lin-explain">点 y 里任意一格。</p>
+<p>x（1 行 × 4 列）× W<sup>T</sup>（4 行 × 2 列）= y（1 行 × 2 列）</p>
+<div id="lin-anim" style="overflow-x:auto;"></div>
+<p id="lin-explain">点“播放”开始。</p>
+<button id="lin-play" style="padding:6px 12px;margin:2px;cursor:pointer;">▶ 播放</button>
+<button id="lin-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一格</button>
+<button id="lin-all" style="padding:6px 12px;margin:2px;cursor:pointer;">全部算完</button>
+<button id="lin-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重置</button>
 </div>
 <script>
 (function(){
   var x=[1,2,3,4], W=[[1,0,1,0],[0,1,0,1]];
-  var y=[0,0];
-  for(var j=0;j<2;j++){ var s=0; for(var k=0;k<4;k++) s+=x[k]*W[j][k]; y[j]=s; }
-  var el=document.getElementById('lin-grid');
-  var html='<table style="border-collapse:collapse;text-align:center;"><tr><td>x =</td>'+x.map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;">'+v+'</td>';}).join('')+'</tr>';
-  html+='<tr><td>W =</td>'+W.map(function(r){return '<td style="border:1px solid #888;padding:8px 12px;">'+r.join(', ')+'</td>';}).join('')+'</tr></table>';
-  html+='<p>y =</p><table style="border-collapse:collapse;text-align:center;"><tr>';
-  for(var j=0;j<2;j++){ html+='<td><button data-j="'+j+'" style="padding:10px 18px;margin:2px;cursor:pointer;">'+y[j]+'</button></td>'; }
-  html+='</tr></table>';
-  el.innerHTML=html;
-  el.querySelectorAll('button').forEach(function(b){
-    b.addEventListener('click', function(){
-      var j=+b.getAttribute('data-j');
-      var parts=[]; for(var k=0;k<4;k++) parts.push(x[k]+'×'+W[j][k]);
-      document.getElementById('lin-explain').textContent='y['+j+'] = '+parts.join(' + ')+' = '+y[j]+'。x 的每个数乘 W 第 '+j+' 行对应的数，再相加。';
-    });
+  // W^T is 4x2: WT[k][j] = W[j][k]
+  var WT=[[1,0],[0,1],[1,0],[0,1]];
+  var y=[4,6];
+  // steps: for each y cell j, for each k: multiply x[k]*WT[k][j]; then sum step
+  var steps=[];
+  for(var j=0;j<2;j++){
+    for(var k=0;k<4;k++) steps.push({type:'mul', j:j, k:k, prod:x[k]*WT[k][j]});
+    steps.push({type:'sum', j:j});
+  }
+  var idx=-1, timer=null, playing=false;
+  function render(){
+    function cell(v, hl){
+      var bg = hl==='cur' ? '#facc15' : hl==='done' ? '#2563eb' : '#1f2937';
+      var col = hl ? '#000' : '#fff';
+      if(hl==='done') col='#fff';
+      return '<td style="border:1px solid #888;padding:10px 14px;background:'+bg+';color:'+col+';">'+v+'</td>';
+    }
+    var html='<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;"><tr><td style="padding:4px;">x =</td>';
+    for(var k=0;k<4;k++){
+      var hl='';
+      if(idx>=0 && steps[idx] && steps[idx].j!==undefined){
+        // highlight x[k] when current step uses it
+        if(steps[idx].type==='mul' && steps[idx].k===k) hl='cur';
+        else if(steps[idx].type==='sum') hl='';
+      }
+      html+=cell(x[k], hl);
+    }
+    html+='</tr></table>';
+    html+='<span style="margin:0 8px;">×</span>';
+    html+='<span style="display:inline-block;vertical-align:middle;">W<sup>T</sup> =<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;">';
+    for(var r=0;r<4;r++){
+      html+='<tr>';
+      for(var c=0;c<2;c++){
+        var hl2='';
+        if(idx>=0 && steps[idx] && steps[idx].type==='mul' && steps[idx].k===r && steps[idx].j===c) hl2='cur';
+        html+=cell(WT[r][c], hl2);
+      }
+      html+='</tr>';
+    }
+    html+='</table></span>';
+    html+='<span style="margin:0 8px;">=</span>';
+    html+='<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;"><tr><td style="padding:4px;">y =</td>';
+    for(var j2=0;j2<2;j2++){
+      var done = idx>=0 && steps.slice(0, idx+1).some(function(s){return s.type==='sum' && s.j===j2;});
+      var cur = idx>=0 && steps[idx] && steps[idx].j===j2;
+      html+=cell(done?y[j2]:'?', done?'done':(cur?'cur':''));
+    }
+    html+='</tr></table>';
+    document.getElementById('lin-anim').innerHTML=html;
+    var ex=document.getElementById('lin-explain');
+    if(idx<0){ ex.textContent='点“播放”开始。'; return; }
+    var s=steps[idx];
+    if(s.type==='mul'){
+      var parts=[];
+      for(var kk=0;kk<=s.k;kk++) parts.push(x[kk]+'×'+WT[kk][s.j]+'='+x[kk]*WT[kk][s.j]);
+      ex.textContent='算 y['+s.j+']：'+parts.join('，')+'。当前这格是 '+x[s.k]+'×'+WT[s.k][s.j]+' = '+s.prod+'，黄色是正在算的格子。';
+    } else {
+      var all=[]; for(var kk2=0;kk2<4;kk2++) all.push(x[kk2]+'×'+WT[kk2][s.j]);
+      ex.textContent='y['+s.j+'] = '+all.join(' + ')+' = '+y[s.j]+'。';
+    }
+  }
+  function stop(){ if(timer){ clearInterval(timer); timer=null; } playing=false; document.getElementById('lin-play').textContent='▶ 播放'; }
+  function step(){
+    if(idx>=steps.length-1){ stop(); return; }
+    idx++; render();
+    if(idx>=steps.length-1) stop();
+  }
+  document.getElementById('lin-play').addEventListener('click', function(){
+    if(playing){ stop(); return; }
+    if(idx>=steps.length-1){ idx=-1; render(); }
+    playing=true; this.textContent='⏸ 暂停';
+    timer=setInterval(step, 900);
   });
+  document.getElementById('lin-next').addEventListener('click', function(){ stop(); step(); });
+  document.getElementById('lin-all').addEventListener('click', function(){ stop(); idx=steps.length-1; render(); });
+  document.getElementById('lin-reset').addEventListener('click', function(){ stop(); idx=-1; render(); });
+  render();
 })();
 </script>
 
