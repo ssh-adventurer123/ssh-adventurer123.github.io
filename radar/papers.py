@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Append a daily 'AI papers' section to today's blog post.
+"""Add a daily 'AI papers' section to today's blog post, as a peer of the
+'tech news' section: a group in the summary list at the top, and a detail
+section right after the tech-news detail section.
 
 Picks 3-5 arXiv papers from the last 7 days, most valuable for the user's
 research interests (LLM, multi-agent systems, context engineering / ACE,
@@ -10,8 +12,8 @@ How it works:
   2. Drop papers already published in the last 8 days of blog posts.
   3. One Groq call ranks the rest and picks the top 3-5 (Chinese titles +
      one-line reasons). Falls back to recency order if ranking fails.
-  4. Append a '## AI 论文' section to today's post. Idempotent: skips if
-     the section is already there.
+  4. Insert the section into today's post. Idempotent: any previous papers
+     section is removed first, then re-inserted.
 
 Stdlib only. Reads GROQ_API_KEY from the environment for ranking.
 """
@@ -19,6 +21,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 ARXIV_API = "https://export.arxiv.org/api/query"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "openai/gpt-oss-120b"
+USER_AGENT = "ai-news-radar-papers/1.0"
 
 # (arXiv category, max results per query) — ordered by relevance to the user.
 CATEGORIES = [
@@ -41,8 +45,9 @@ CATEGORIES = [
 DAYS = 7            # pool: papers submitted in the last 7 days
 SEEN_DAYS = 8       # dedup against posts from the last 8 days (1 day margin)
 PICK_COUNT = 5      # aim for 3-5 papers
-MIN_COUNT = 3
-SECTION_MARKER = "## AI 论文"
+SECTION_TITLE = "AI 论文"
+DETAIL_HEADING = "## AI 论文"
+INDEX_HEADING = "**AI 论文**"
 
 INTERESTS = (
     "大语言模型 (LLM)：从基础理论到实际应用；"
@@ -54,6 +59,7 @@ INTERESTS = (
 
 ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 ARXIV_ID_RE = re.compile(r"arxiv\.org/abs/(\d{4}\.\d{4,5})")
+NUMBERED_RE = re.compile(r"^\d+\.\s")
 
 
 def beijing_today() -> datetime:
@@ -73,7 +79,7 @@ def fetch_category(category: str, max_results: int, since: datetime, until: date
         "max_results": max_results,
     }
     url = ARXIV_API + "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={"User-Agent": "ai-news-radar-papers/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = resp.read()
     root = ET.fromstring(data)
@@ -118,7 +124,7 @@ def load_seen_ids(posts_dir: str, today: datetime) -> set:
     return seen
 
 
-def rank_with_groq(candidates, api_key: str):
+def groq_rank(candidates, api_key: str):
     """One Groq call: pick the top 3-5 most valuable papers. Returns list of dicts."""
     items_text = []
     for i, p in enumerate(candidates):
@@ -150,6 +156,7 @@ def rank_with_groq(candidates, api_key: str):
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
         },
     )
     with urllib.request.urlopen(req, timeout=120) as resp:
@@ -171,10 +178,32 @@ def rank_with_groq(candidates, api_key: str):
             "title_zh": entry.get("title_zh") or paper["title"],
             "reason": entry.get("reason") or "",
             "published": paper["published"],
+            "categories": paper["categories"],
         })
         if len(result) >= PICK_COUNT:
             break
     return result
+
+
+def rank_with_groq(candidates, api_key: str):
+    """Rank with one retry; log the provider's error body for diagnosis."""
+    last_exc = None
+    for attempt in (1, 2):
+        try:
+            return groq_rank(candidates, api_key)
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8", "replace")[:500]
+            except Exception:
+                detail = ""
+            print(f"WARN Groq ranking attempt {attempt} failed: HTTP {exc.code} {detail}")
+            last_exc = exc
+        except Exception as exc:
+            print(f"WARN Groq ranking attempt {attempt} failed: {exc}")
+            last_exc = exc
+        if attempt == 1:
+            time.sleep(30)
+    raise last_exc
 
 
 def fallback_pick(candidates):
@@ -187,19 +216,133 @@ def fallback_pick(candidates):
             "title_zh": p["title"],
             "reason": first_sentence[:100],
             "published": p["published"],
+            "categories": p["categories"],
         })
     return result
 
 
-def format_section(picked) -> str:
-    lines = [SECTION_MARKER, ""]
-    for p in picked:
-        line = f"- [{p['title_zh']}](https://arxiv.org/abs/{p['id']})"
+def format_date(iso: str) -> str:
+    try:
+        dt = datetime.strptime(iso[:10], "%Y-%m-%d")
+        return f"{dt.month}月{dt.day}日"
+    except ValueError:
+        return iso[:10]
+
+
+def format_meta(paper) -> str:
+    cats = [c for c in paper.get("categories", []) if c.startswith("cs.")][:3]
+    parts = ["arXiv"]
+    if cats:
+        parts.append(", ".join(cats))
+    if paper.get("published"):
+        parts.append(format_date(paper["published"]))
+    return " · ".join(parts)
+
+
+def build_index_group(picked) -> list:
+    lines = [INDEX_HEADING]
+    for i, p in enumerate(picked, start=1):
+        lines.append(f"{i}. [{p['title_zh']}](#item-ai-papers-{i})")
+    return lines
+
+
+def build_detail_section(picked) -> list:
+    lines = [DETAIL_HEADING, ""]
+    for i, p in enumerate(picked, start=1):
+        lines.append(f'<a id="item-ai-papers-{i}"></a>')
+        lines.append(f"### [{p['title_zh']}](https://arxiv.org/abs/{p['id']})")
+        lines.append("")
         if p.get("reason"):
-            line += f" — {p['reason']}"
-        lines.append(line)
-    lines.append("")
-    return "\n".join(lines)
+            lines.append(p["reason"])
+            lines.append("")
+        lines.append(format_meta(p))
+        lines.append("")
+    return lines
+
+
+def remove_existing_papers(lines: list) -> list:
+    """Drop any previous papers index group and detail section."""
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line == INDEX_HEADING:
+            # Skip the heading, its numbered items, and one trailing blank line.
+            i += 1
+            while i < len(lines) and NUMBERED_RE.match(lines[i]):
+                i += 1
+            if i < len(lines) and lines[i] == "":
+                i += 1
+            continue
+        if line == DETAIL_HEADING:
+            # Skip until the next H2 heading or end of file.
+            i += 1
+            while i < len(lines) and not lines[i].startswith("## "):
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return out
+
+
+def insert_papers(lines: list, picked) -> list:
+    """Insert the index group after the tech-news index group and the detail
+    section right after the tech-news detail section."""
+    # --- index group: after the "**科技新闻**" group's numbered items ---
+    index_group = build_index_group(picked)
+    idx = None
+    first_h2 = None
+    for j, line in enumerate(lines):
+        if first_h2 is None and line.startswith("## "):
+            first_h2 = j
+        if line == "**科技新闻**":
+            idx = j
+            break
+    if idx is not None:
+        k = idx + 1
+        while k < len(lines) and NUMBERED_RE.match(lines[k]):
+            k += 1
+        # k is the blank line after the numbered items (or the next heading).
+        insert_at = k
+        block = [""] + index_group
+        if insert_at >= len(lines) or lines[insert_at] != "":
+            block.append("")
+        lines = lines[:insert_at] + block + lines[insert_at:]
+    # --- detail section: right after the "## 科技新闻" section ---
+    detail = build_detail_section(picked)
+    h2 = None
+    for j, line in enumerate(lines):
+        if line == "## 科技新闻":
+            h2 = j
+            break
+    if h2 is None:
+        # No tech-news section (e.g. empty news day): append at the end.
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(detail)
+        return lines
+    nxt = None
+    for j in range(h2 + 1, len(lines)):
+        if lines[j].startswith("## "):
+            nxt = j
+            break
+    if nxt is None:
+        # Strip a dangling divider left by a removed papers section.
+        while lines and lines[-1] == "":
+            lines.pop()
+        if lines and lines[-1] == "---":
+            lines.pop()
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(["---", ""] + detail)
+        return lines
+    # Insert before the next H2, keeping the "---" divider that precedes it.
+    insert_at = nxt
+    if insert_at >= 2 and lines[insert_at - 1] == "" and lines[insert_at - 2] == "---":
+        insert_at -= 2
+    block = detail + ["---", ""]
+    lines = lines[:insert_at] + block + lines[insert_at:]
+    return lines
 
 
 def main() -> int:
@@ -216,9 +359,6 @@ def main() -> int:
         return 0
     with open(post_path, encoding="utf-8") as f:
         post = f.read()
-    if SECTION_MARKER in post:
-        print(f"SKIP {date_str} (papers section already present)")
-        return 0
 
     until = datetime.now(timezone.utc)
     since = until - timedelta(days=DAYS)
@@ -241,7 +381,14 @@ def main() -> int:
     fresh = [p for p in candidates if p["id"] not in seen]
     print(f"DEDUP removed {len(candidates) - len(fresh)} already-published, {len(fresh)} fresh")
     if not fresh:
-        print("NO_CANDIDATES (nothing fresh to add)")
+        # Still remove a stale section if the post has one but nothing fresh.
+        lines = remove_existing_papers(post.split("\n"))
+        if lines != post.split("\n"):
+            with open(post_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            print("REMOVED stale papers section (no fresh candidates)")
+        else:
+            print("NO_CANDIDATES (nothing fresh to add)")
         return 0
 
     api_key = os.environ.get("GROQ_API_KEY", "")
@@ -256,9 +403,10 @@ def main() -> int:
         picked = fallback_pick(fresh)
         print(f"FALLBACK picked {len(picked)} newest papers")
 
-    section = format_section(picked)
-    with open(post_path, "a", encoding="utf-8") as f:
-        f.write("\n" + section)
+    lines = remove_existing_papers(post.split("\n"))
+    lines = insert_papers(lines, picked)
+    with open(post_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
     print(f"ADDED {len(picked)} papers to {post_path}")
     return 0
 
