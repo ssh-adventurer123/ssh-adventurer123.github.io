@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>每日AI动态 - Wang 的 AI 博客</title>
+<style>
+  body { background: #1d1e20; color: #dadadb; font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; display: flex; min-height: 100vh; margin: 0; align-items: center; justify-content: center; text-align: center; }
+  main { padding: 2rem; }
+  a { color: #ffa07a; }
+  .spin { font-size: 2rem; }
+</style>
+</head>
+<body>
+<main>
+  <div class="spin">🌅</div>
+  <p>正在打开今日 AI 速递…</p>
+  <p><a href="/ai-news-radar/">如果没有自动跳转，点这里打开雷达首页</a></p>
+</main>
+<script>
+  fetch('/ai-news-radar/', { credentials: 'same-origin' })
+    .then(function (r) { if (!r.ok) throw new Error('bad status'); return r.text(); })
+    .then(function (html) {
+      var m = html.match(/href="([^"]*summary-zh\.html)"/);
+      if (m) {
+        var u = m[1];
+        if (u.charAt(0) !== '/') u = '/ai-news-radar/' + u;
+        location.replace(u);
+      } else {
+        location.replace('/ai-news-radar/');
+      }
+    })
+    .catch(function () { location.replace('/ai-news-radar/'); });
+</script>
+</body>
+</html>

@@ -52,7 +52,7 @@ menu:
       url: /categories/projects/
       weight: 15
     - name: 每日AI动态
-      url: https://ssh-adventurer123.github.io/ai-news-radar/
+      url: /daily/
       weight: 17
     - name: 我的开源
       url: https://github.com/ssh-adventurer123?tab=repositories
