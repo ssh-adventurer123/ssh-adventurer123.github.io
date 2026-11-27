@@ -1,3 +1,9 @@
 public/
 resources/
 .hugo_build.lock
+
+# radar generator (Horizon) - runtime files, not committed
+radar/.venv/
+radar/data/config.json
+radar/data/summaries/
+radar/docs/

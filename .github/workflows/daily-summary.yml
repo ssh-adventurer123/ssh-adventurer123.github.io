@@ -1,0 +1,57 @@
+name: Daily AI News Digest
+
+# Runs Horizon (the AI news radar) inside this repo every morning,
+# turns the newest Chinese digest into a blog post, and publishes it.
+# The standalone ai-news-radar repo is no longer needed once this works.
+on:
+  schedule:
+    - cron: '23 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  daily-summary:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.26"
+      - name: Install dependencies
+        working-directory: radar
+        run: uv sync
+      - name: Prepare Horizon config
+        working-directory: radar
+        run: cp data/config.github.json data/config.json
+      - name: Run Horizon
+        working-directory: radar
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          HORIZON_WEBHOOK_URL: ${{ secrets.HORIZON_WEBHOOK_URL }}
+        run: uv run horizon --hours 24
+      - name: Convert digest to blog post
+        run: bash radar/convert-to-blog.sh
+      - name: Commit and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "ssh-adventurer123"
+          git config user.email "ssh-adventurer123@users.noreply.com"
+          git add content/posts/daily-*.md
+          if git diff --cached --quiet; then
+            echo "No new post, nothing to commit."
+            exit 0
+          fi
+          git commit -m "daily ai news: $(date -u +%Y-%m-%d)"
+          git push origin main
+          # A push made with GITHUB_TOKEN does not trigger other workflows,
+          # so start the Hugo deploy explicitly.
+          gh workflow run hugo.yaml --ref main

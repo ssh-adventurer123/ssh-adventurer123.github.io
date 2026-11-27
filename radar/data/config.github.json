@@ -1,0 +1,79 @@
+{
+  "ai": {
+    "provider": "openai",
+    "model": "openai/gpt-oss-120b",
+    "base_url": "https://api.groq.com/openai/v1",
+    "api_key_env": "GROQ_API_KEY",
+    "temperature": 0.3,
+    "max_tokens": 4096,
+    "throttle_sec": 10,
+    "languages": ["zh", "en"],
+    "analysis_concurrency": 1,
+    "enrichment_concurrency": 1
+  },
+  "processing": {
+    "profiles_dir": "profiles",
+    "default_profile": "tech-news",
+    "profile_settings": {
+      "tech-news": {"threshold": 7.0, "topic_dedup": true},
+      "tech-blog": {"threshold": 4.0, "topic_dedup": false},
+      "finance-news": {"threshold": 7.0, "topic_dedup": true}
+    }
+  },
+  "sources": {
+    "github": [
+      {"type": "user_events", "username": "karpathy", "enabled": true, "profile": "tech-news"},
+      {"type": "repo_releases", "owner": "vllm-project", "repo": "vllm", "enabled": true, "profile": "tech-news"},
+      {"type": "repo_releases", "owner": "sgl-project", "repo": "sglang", "enabled": true, "profile": "tech-news"}
+    ],
+    "hackernews": {
+      "enabled": true,
+      "fetch_top_stories": 30,
+      "min_score": 150,
+      "profile": "tech-news"
+    },
+    "rss": [
+      {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "enabled": true, "category": "ai-tools", "profile": "tech-news"},
+      {"name": "vLLM Blog", "url": "https://vllm.ai/blog/rss.xml", "enabled": true, "category": "llm-inference", "profile": "tech-blog", "content_extractor": "trafilatura"},
+      {"name": "Semianalysis", "url": "https://newsletter.semianalysis.com/feed", "enabled": true, "category": "semiconductors", "profile": "tech-news"},
+      {"name": "GitHub Trending", "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml", "enabled": true, "category": "github-trending", "profile": "tech-news"},
+      {"name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "enabled": true, "category": "ai-news", "profile": "tech-news"},
+      {"name": "Google DeepMind Blog", "url": "https://deepmind.google/blog/rss.xml", "enabled": true, "category": "ai-research", "profile": "tech-news"},
+      {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "enabled": true, "category": "ai-tools", "profile": "tech-news"},
+      {"name": "Anthropic News", "url": "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml", "enabled": true, "category": "ai-news", "profile": "tech-news"},
+      {"name": "Cloudflare Blog", "url": "https://blog.cloudflare.com/rss/", "enabled": true, "category": "engineering", "profile": "tech-blog", "content_extractor": "trafilatura"},
+      {"name": "GitHub Engineering Blog", "url": "https://github.blog/engineering/feed/", "enabled": true, "category": "engineering", "profile": "tech-blog", "content_extractor": "trafilatura"},
+      {"name": "Meta Engineering", "url": "https://engineering.fb.com/feed/", "enabled": true, "category": "engineering", "profile": "tech-blog", "content_extractor": "trafilatura"}
+    ],
+    "reddit": {
+      "enabled": true,
+      "subreddits": [
+        {"subreddit": "MachineLearning", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 10, "min_score": 60, "profile": "tech-news"},
+        {"subreddit": "LocalLLaMA", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 10, "min_score": 60, "profile": "tech-news"}
+      ],
+      "users": [],
+      "fetch_comments": 10
+    },
+    "telegram": {"enabled": false, "channels": []}
+  },
+  "collection": {"time_window_hours": 24},
+  "digest": {
+    "max_items": 20,
+    "profile_order": ["tech-news", "tech-blog", "finance-news"],
+    "category_groups": {},
+    "default_group": "other",
+    "default_group_limit": null
+  },
+  "webhook": {"enabled": false},
+  "email": {
+    "enabled": false,
+    "smtp_server": "smtp.qq.com",
+    "smtp_port": 465,
+    "imap_server": "imap.qq.com",
+    "imap_port": 993,
+    "email_address": "xxx@qq.com",
+    "sender_name": "Horizon Daily",
+    "subscribe_keyword": "SUBSCRIBE",
+    "unsubscribe_keyword": "UNSUBSCRIBE"
+  }
+}
