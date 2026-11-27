@@ -20,16 +20,18 @@ date=$(basename "$newest" | cut -c1-10)
 target="content/posts/daily-$date.md"
 new_body=$(strip_frontmatter "$newest")
 
-if [ -f "$target" ]; then
-  old_body=$(strip_frontmatter "$target")
-  if [ "$new_body" = "$old_body" ]; then
-    echo "NO_CHANGE $date"
-    exit 0
-  fi
-fi
-
+# Build the full post and compare whole files: the front matter template
+# adds its own blank line, so comparing bare bodies gives false positives.
+tmp=$(mktemp)
 {
   printf -- '---\ntitle: "每日AI动态 - %s"\ndate: %s\ncategories: ["daily-ai-news"]\n---\n\n' "$date" "$date"
   printf '%s\n' "$new_body"
-} > "$target"
+} > "$tmp"
+
+if [ -f "$target" ] && cmp -s "$tmp" "$target"; then
+  rm -f "$tmp"
+  echo "NO_CHANGE $date"
+  exit 0
+fi
+mv "$tmp" "$target"
 echo "WROTE $target"
