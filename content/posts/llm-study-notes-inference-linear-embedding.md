@@ -315,6 +315,6 @@ Linear 要做矩阵乘法，每个输出数都是输入数加权求和算出来�
 
 ---
 
-下一步：[第四步：Transformer 块，逐个拆](/posts/llm-study-notes-inference/)（还没写，先回目录）
+下一步：[第四步：Transformer 块，逐个拆](/posts/llm-study-notes-inference-transformer-block/)
 
 回目录：[大模型推理](/posts/llm-study-notes-inference/)
