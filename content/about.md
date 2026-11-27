@@ -3,13 +3,30 @@ title: "关于我"
 date: 2026-11-27
 ---
 
-你好，我是 Wang。
+## 个人简介
 
-这个博客是我学 AI 的记录本：看到有意思的模型、工具、论文和开源项目，就拆开来写下来。
+你好，我是 Wang Ruiqing（wangruiqing），上海工程技术大学（Shanghai University of Engineering Science，SUES）的学生。
 
-目前在做的两件事：
+我正在学 AI，边学边记。这个博客就是我的记录本。
 
-- **这个博客**：Hugo + GitHub Pages，不用服务器，写 Markdown 就能发文章。
-- **AI 新闻雷达**：每天早上自动抓 AI 新闻、AI 总结成中文速递，放在顶部的「每日AI动态」里，点进去就是 https://ssh-adventurer123.github.io/ai-news-radar/
+## 研究兴趣
 
-栏目后面再慢慢填，先把站跑起来。
+我的研究主要集中在以下几个方向：
+
+- **大语言模型 (LLM)**：从基础理论到实际应用
+- **Vibe Coding**：使用AI编程提升个人全方位效能
+- **AI 工具链**：构建高效的 AI 开发工具
+
+## 专业背景
+
+- **AI 工具**：Codex、Gemini 等
+
+## 这个博客写什么
+
+- 看到有意思的 AI 模型、工具和开源项目，就拆开来写下来。
+- 每天的 AI 新闻速递在顶部的「每日AI动态」里。
+
+## 联系我
+
+- **GitHub**：https://github.com/ssh-adventurer123
+- **邮箱**：ruiqingwang44@gmail.com
