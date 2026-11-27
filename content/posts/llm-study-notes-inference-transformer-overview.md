@@ -416,6 +416,6 @@ Transformer 块里有两个子层，各是干什么的？
 
 ---
 
-下一步：[第三步：最基础的两个模块](/posts/llm-study-notes-inference/)（还没写，先回目录）
+下一步：[第三步：最基础的两个模块](/posts/llm-study-notes-inference-linear-embedding/)
 
 回目录：[大模型推理](/posts/llm-study-notes-inference/)
