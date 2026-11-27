@@ -245,17 +245,79 @@ description: "大模型推理第二步：Transformer 整体长什么样，decode
 
 一句话记区别：**Pre-Norm 是“先归一化再算”，Post-Norm 是“算完再归一化”。** 归一化在残差路径上还是在外面，决定了梯度好不好传，所以现代大模型都用 Pre-Norm。
 
-## Decoder-only 和 Encoder-Decoder：为什么现代大模型只用前者
+## Decoder-only 和 Encoder-Decoder：并排对比图
 
-原始 Transformer 是编码器-解码器结构：编码器读输入，解码器生成输出，中间还有交叉注意力。
+原始 Transformer 是编码器-解码器结构，现代大语言模型（GPT、LLaMA 等）统一用 **decoder-only**。下面两边并排摆着，点图里任意一个方块。
 
-现代大语言模型（GPT、LLaMA 等）统一用 **decoder-only**：只有一个解码器堆叠，自己读输入、自己生成输出，不需要编码器。
-
-<div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<p><strong>Encoder-Decoder（原始）</strong>：编码器 → 解码器 → 输出，两个塔，中间交叉注意力连起来。</p>
-<p><strong>Decoder-only（现在）</strong>：一个塔，输入进来，输出出去，塔里全是自注意力 + FFN。</p>
-<p>为什么只用后者？语言模型要做的事就是“给定前面的词，预测下一个词”，一个塔就够了，两个塔是多余的。而且 decoder-only 可以直接拿海量文本预训练，不需要成对的输入输出。</p>
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div style="display:flex;gap:16px;">
+<div style="flex:1;border:1px solid #888;border-radius:8px;padding:10px;">
+<div style="text-align:center;font-weight:bold;">Encoder-Decoder（原始，两个塔）</div>
+<div style="display:flex;gap:8px;">
+<div style="flex:1;">
+<div style="text-align:center;font-size:12px;">编码器塔</div>
+<div class="ed-box" data-k="enc-in" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;">输入<br><span style="font-size:12px;">源语言句子</span></div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="enc" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#dbeafe;">编码器 × N<br><span style="font-size:12px;">自注意力 + FFN</span></div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="enc-out" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;">编码结果<br><span style="font-size:12px;">整句的意思</span></div>
 </div>
+<div style="flex:1;">
+<div style="text-align:center;font-size:12px;">解码器塔</div>
+<div class="ed-box" data-k="dec-in" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;">输入<br><span style="font-size:12px;">已生成的词</span></div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="dec-self" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#dbeafe;">自注意力</div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="cross" style="border:2px solid #dc2626;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#fee2e2;">交叉注意力<br><span style="font-size:12px;">← 看编码器</span></div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="dec-ffn" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#dcfce7;">FFN</div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="dec-out" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;">输出<br><span style="font-size:12px;">目标语言句子</span></div>
+</div>
+</div>
+<p style="font-size:13px;">两个塔，中间靠交叉注意力连起来。适合翻译这种“输入一种语言，输出另一种语言”的任务。</p>
+</div>
+<div style="flex:1;border:1px solid #888;border-radius:8px;padding:10px;">
+<div style="text-align:center;font-weight:bold;">Decoder-only（现在，一个塔）</div>
+<div class="ed-box" data-k="do-in" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;">输入<br><span style="font-size:12px;">“猫 吃 鱼”</span></div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="do-block" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#dbeafe;">解码器块 × N<br><span style="font-size:12px;">自注意力 + FFN</span></div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="do-block2" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#dbeafe;">解码器块 × N<br><span style="font-size:12px;">自注意力 + FFN</span></div>
+<div style="text-align:center;">↓</div>
+<div class="ed-box" data-k="do-out" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;">输出<br><span style="font-size:12px;">下一个词</span></div>
+<p style="font-size:13px;">一个塔，自己读输入、自己生成输出。<span style="color:#dc2626;font-weight:bold;">没有交叉注意力，没有编码器。</span></p>
+</div>
+</div>
+<p id="ed-explain">点上面任意一个方块。</p>
+</div>
+<script>
+(function(){
+  var texts={
+    'enc-in':'<strong>编码器输入：</strong>源语言句子，比如英文 "The cat eats fish"。编码器整句读完，理解意思。',
+    'enc':'<strong>编码器：</strong>只有自注意力 + FFN，没有交叉注意力。它把输入变成“整句的意思”，交给解码器。',
+    'enc-out':'<strong>编码结果：</strong>输入句子的表示，解码器生成每个词时都要回头看它。',
+    'dec-in':'<strong>解码器输入：</strong>已经生成的目标语言词，比如中文已经生成了“猫”。',
+    'dec-self':'<strong>解码器自注意力：</strong>已生成的词互相看，带上上下文。',
+    'cross':'<strong>交叉注意力：</strong>Encoder-Decoder 独有的。解码器生成每个词时，用它去看编码器的结果，对照着翻译。Decoder-only 里没有这个。',
+    'dec-ffn':'<strong>解码器 FFN：</strong>逐个 token 独立加工。',
+    'dec-out':'<strong>解码器输出：</strong>目标语言句子，比如中文“猫吃鱼”。',
+    'do-in':'<strong>Decoder-only 输入：</strong>就是要接着写的文本，比如“猫 吃 鱼”，没有另一份输入。',
+    'do-block':'<strong>解码器块：</strong>自注意力 + FFN，和编码器块很像，但没有交叉注意力。',
+    'do-block2':'<strong>解码器块：</strong>同样的块再叠一层，结构相同，参数不同。',
+    'do-out':'<strong>Decoder-only 输出：</strong>下一个词。语言模型要做的事就是“给定前面的词，预测下一个词”，一个塔就够了。'
+  };
+  document.querySelectorAll('.ed-box').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('.ed-box').forEach(function(x){x.style.outline='';});
+      b.style.outline='3px solid #2563eb';
+      document.getElementById('ed-explain').innerHTML=texts[b.getAttribute('data-k')];
+    });
+  });
+})();
+</script>
+
+区别一句话：**Encoder-Decoder 是两个塔加交叉注意力，Decoder-only 是一个塔、没有交叉注意力。** 语言模型只需要接着写，不需要翻译，所以一个塔就够了，还能直接拿海量文本预训练，不需要成对的输入输出。
 
 ## 形状总览：一张表看完
 
