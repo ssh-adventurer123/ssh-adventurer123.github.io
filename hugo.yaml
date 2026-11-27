@@ -6,9 +6,9 @@ defaultContentLanguage: zh-cn
 title: "Wang 的 AI 博客"
 theme: PaperMod
 
-# 生成 sitemap / RSS / 搜索用的 JSON 索引
+# 生成 sitemap / RSS（搜索栏目已去掉，不再需要 JSON 索引）
 outputs:
-  home: [HTML, RSS, JSON]
+  home: [HTML, RSS]
 
 # 分类和标签：文章 front matter 里写 categories: ["my-insights"] 就会自动归到对应栏目
 taxonomies:
@@ -45,9 +45,6 @@ menu:
     - name: 关于我
       url: /about/
       weight: 2
-    - name: 本站搜索
-      url: /search/
-      weight: 3
     - name: 个人洞察
       url: /categories/my-insights/
       weight: 10
