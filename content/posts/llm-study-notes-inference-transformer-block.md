@@ -221,24 +221,81 @@ LayerNorm 先减均值再除以标准差，RMSNorm 不减均值，只除以均�
 
 ## 4.2 RoPE：旋转位置编码，给 Q、K 转个角度
 
-注意力本身不知道词的先后顺序：“猫吃鱼”和“鱼吃猫”算出来完全一样，只是换了行。所以要给位置信息。
+先把一句话记下来：
 
-LLaMA 这些模型用 RoPE：**不在输入上加位置向量，而是在算 Q、K 的时候，把每一对数转一个角度**，角度由位置决定。
+**RoPE 不在输入上加位置向量，而是把 Q、K 的每两个数看成一对，转一个由位置决定的角度。**
 
-### 旋转是怎么转的
+注意力本身不知道词的先后顺序：“猫吃鱼”和“鱼吃猫”算出来完全一样，只是换了行。RoPE 解决的就是这个问题。
 
-把向量的每两个数看成一对 $(x, y)$，转角度 $\theta$：
+### 1. 公式描述：一个符号一个符号讲
 
-$x' = x \cos\theta - y \sin\theta$
-$y' = x \sin\theta + y \cos\theta$
+位置 $i$ 处的查询向量 $\boldsymbol{q}^{(i)}$ 受到旋转变换：
 
-$\theta$ 由位置 pos 和这一对是第几对决定：$\theta = pos \times 10000^{-2i/d}$。d=4 时，第 0 对 $\theta = pos \times 1$，第 1 对 $\theta = pos \times 0.01$。位置越大，转得越多；第 0 对转得快，第 1 对转得慢。
+$\boldsymbol{q}'^{(i)} = R^i \boldsymbol{q}^{(i)}$
 
-关键性质：**相对位置决定相对角度**。两个词位置差多少，它们的 Q、K 之间就差多少角度，点积只和相对位置有关，和绝对位置无关。
+旋转矩阵 $R^i$ 是**分块对角矩阵**，对角线上是一串 2×2 的小旋转块，其他位置都是 0：
 
-### 动画：给“吃”的 Q 转一度
+$R^i = \begin{pmatrix} R_{i,1} & 0 & 0 & \cdots & 0 \\ 0 & R_{i,2} & 0 & \cdots & 0 \\ 0 & 0 & R_{i,3} & \cdots & 0 \\ \vdots & \vdots & \vdots & \ddots & \vdots \\ 0 & 0 & 0 & \cdots & R_{i,d/2} \end{pmatrix}$
 
-“吃”在位置 1，Q 的第一对是 [0, 2]，转 $\theta = 1$ 弧度（cos 1 ≈ 0.54，sin 1 ≈ 0.84）。点“播放”看它怎么转。
+其中每个二维旋转子矩阵 $R_{i,k}$ 将元素两两分组进行旋转：
+
+$R_{i,k} = \begin{pmatrix} \cos(\theta_{i,k}) & \sin(\theta_{i,k}) \\ -\sin(\theta_{i,k}) & \cos(\theta_{i,k}) \end{pmatrix}$
+
+对应的旋转角度 $\theta_{i,k}$ 计算公式：
+
+$\theta_{i,k} = \frac{i}{\Theta^{(2k-2)/d}}$
+
+| 符号 | 是什么 | 记住它 |
+| --- | --- | --- |
+| $i$ | 序列中的 token 下标（行） | 第几个词，0、1、2、3…… |
+| $k$ | 特征维度两两分组后的组号（列） | 第几对，1、2…… |
+| $d$ | 特征维度，这里是 4 | 一共几维 |
+| $\Theta$ | 底数，通常取 10000 | 固定常数，不用学 |
+| $\theta_{i,k}$ | 第 $i$ 个词、第 $k$ 对的旋转角度 | 位置越大，转得越多 |
+
+### 2. 公式推导：4 维向量，一组一组转
+
+以 4 维行向量 $\boldsymbol{q}^{(i)} = (q_0, q_1, q_2, q_3)$ 为例，分成两组：
+
+**第 1 组（k=1）：** $(q_0, q_1)$ 转角度 $\theta_{i,1}$
+
+$(q_0', q_1') = (q_0, q_1) \begin{pmatrix} \cos\theta_{i,1} & \sin\theta_{i,1} \\ -\sin\theta_{i,1} & \cos\theta_{i,1} \end{pmatrix} = (q_0 \cos\theta_{i,1} - q_1 \sin\theta_{i,1},\; q_0 \sin\theta_{i,1} + q_1 \cos\theta_{i,1})$
+
+**第 2 组（k=2）：** $(q_2, q_3)$ 转角度 $\theta_{i,2}$，算法一模一样，只是角度不同
+
+$(q_2', q_3') = (q_2 \cos\theta_{i,2} - q_3 \sin\theta_{i,2},\; q_2 \sin\theta_{i,2} + q_3 \cos\theta_{i,2})$
+
+最终拼回完整行向量：$\boldsymbol{q}'^{(i)} = (q_0', q_1', q_2', q_3')$。
+
+**角度怎么算**：d=4 时，第 1 组 $\theta = i / 10000^0 = i$，第 2 组 $\theta = i / 10000^{0.5} = i / 100$。所以第 1 组转得快（位置 1 就转 1 弧度），第 2 组转得慢（位置 1 只转 0.01 弧度）。
+
+**为什么这样就有相对位置**：两个词的 Q、K 各转了自己的角度，点积里的角度差就是它们的位置差。绝对位置同时加多少，角度差不变，所以点积只看相对位置，不看绝对位置。旋转只改方向不改长度，向量的模长不变。
+
+### 3. 实例演示：一个 4×4 的张量走完全程
+
+输入张量/矩阵 X，形状 (seq_len=4, d_k=4)，4 个 token，每个 4 维：
+
+|  | 1 | 2 | 3 | 4 |
+| --- | --- | --- | --- | --- |
+| Token 0 (i=0) | 1 | 0 | 1 | 0 |
+| Token 1 (i=1) | 0 | 2 | 1 | 1 |
+| Token 2 (i=2) | 1 | 1 | 0 | 0 |
+| Token 3 (i=3) | 2 | 1 | 1 | 0 |
+
+先算好 cos 表和 sin 表，形状都是 (seq_len, d_k/2) = (4, 2)：
+
+|  | cos 第 1 组 | cos 第 2 组 | sin 第 1 组 | sin 第 2 组 |
+| --- | --- | --- | --- | --- |
+| Token 0 | 1.00 | 1.00 | 0.00 | 0.00 |
+| Token 1 | 0.54 | 1.00 | 0.84 | 0.01 |
+| Token 2 | -0.42 | 1.00 | 0.91 | 0.02 |
+| Token 3 | -0.99 | 1.00 | 0.14 | 0.03 |
+
+Token 0 的角度是 0，cos=1、sin=0，所以 Token 0 完全不转。
+
+### 动画：三步走完，分拆 → 旋转 → 拼回
+
+点“播放”，一步一步看；也可以点“下一格”自己走。
 
 <div style="border:1px solid #888;padding:14px;border-radius:8px;">
 <div id="rope-anim" style="overflow-x:auto;"></div>
@@ -250,44 +307,97 @@ $\theta$ 由位置 pos 和这一对是第几对决定：$\theta = pos \times 100
 </div>
 <script>
 (function(){
-  var steps=[
-    {t:'cos', v:'cos 1 ≈ 0.54，sin 1 ≈ 0.84。位置 1，第 0 对，角度就是 1 弧度。'},
-    {t:'x', v:"x' = x cosθ - y sinθ = 0×0.54 - 2×0.84 = -1.68。"},
-    {t:'y', v:"y' = x sinθ + y cosθ = 0×0.84 + 2×0.54 = 1.08。"},
-    {t:'done', v:'转完了：[0, 2] → [-1.68, 1.08]。长度没变（√(0²+2²)=2，√(1.68²+1.08²)=2），只是方向转了。'}
+  var X=[[1,0,1,0],[0,2,1,1],[1,1,0,0],[2,1,1,0]];
+  var x1=[[1,1],[0,1],[1,0],[2,1]], x2=[[0,0],[2,1],[1,0],[1,0]];
+  var r1=[[1,1],[-1.68,0.99],[-1.33,0],[ -2.12,1]];
+  var r2=[[0,0],[1.08,1.01],[0.49,0],[ -0.71,0.03]];
+  var out=[[1,0,1,0],[-1.68,1.08,0.99,1.01],[-1.33,0.49,0,0],[-2.12,-0.71,1,0.03]];
+  var names=['Token 0','Token 1','Token 2','Token 3'];
+  var stages=[
+    {t:'Step 1：分拆。先通过 rearrange 把 (4, 4) 变成 (4, 2, 2)，再 unbind 拆成 x1 和 x2。x1 是偶数列（第 1、3 列），x2 是奇数列（第 2、4 列）。'},
+    {t:'Step 2：旋转。结合 cos 表和 sin 表，分别求出偶数位和奇数位旋转后的结果：x1_rot = x1·cos - x2·sin，x2_rot = x1·sin + x2·cos。看 Token 1 那行：x1_rot = [0×0.54-2×0.84, 1×1-1×0.01] = [-1.68, 0.99]。'},
+    {t:'Step 3：拼回。堆叠并展平恢复 (4, 4) 的原始形状：x_rot = stack([x1_rot, x2_rot])，再 rearrange 回来。Token 0 角度是 0，一点没变；Token 1 变成 [-1.68, 1.08, 0.99, 1.01]。'}
   ];
   var idx=-1, timer=null, playing=false;
   function cell(v, hl){
     var bg = hl==='cur' ? '#facc15' : hl==='done' ? '#2563eb' : '#1f2937';
     var col = hl==='cur' ? '#000' : '#fff';
-    return '<td style="border:1px solid #888;padding:10px 14px;background:'+bg+';color:'+col+';">'+v+'</td>';
+    return '<td style="border:1px solid #888;padding:8px 12px;background:'+bg+';color:'+col+';">'+v+'</td>';
+  }
+  function mat(M, title, on){
+    var h='<div style="display:inline-block;vertical-align:top;margin:4px;"><div style="text-align:center;">'+title+'</div><table style="border-collapse:collapse;text-align:center;">';
+    for(var r=0;r<M.length;r++){
+      h+='<tr><td style="padding:4px;">'+names[r]+'</td>';
+      for(var c=0;c<M[r].length;c++) h+=cell(on?M[r][c]:'?', on?'done':'');
+      h+='</tr>';
+    }
+    return h+'</table></div>';
   }
   function render(){
-    var s = idx>=0 ? steps[idx] : null;
-    var html='<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;"><tr><td style="padding:4px;">转前 q =</td>'+cell(0,'')+cell(2,'')+'</tr>';
-    html+='<tr><td style="padding:4px;">转后 q′ =</td>';
-    html+=cell(s&&idx>=1?-1.68:'?', s&&idx>=1?'done':'');
-    html+=cell(s&&idx>=2?1.08:'?', s&&idx>=2?'done':'');
-    html+='</tr></table>';
+    var html='';
+    html+=mat(X, '输入 X (4, 4)', idx>=0);
+    if(idx>=0) html+='<span style="margin:0 6px;">→</span>'+mat(x1, 'x1 偶数列 (4, 2)', true)+mat(x2, 'x2 奇数列 (4, 2)', true);
+    if(idx>=1) html+='<br>'+mat(r1, 'x1_rot (4, 2)', true)+mat(r2, 'x2_rot (4, 2)', true);
+    if(idx>=2) html+='<br>'+mat(out, '输出 X_rot (4, 4)', true);
     document.getElementById('rope-anim').innerHTML=html;
-    document.getElementById('rope-explain').textContent = s ? s.v : '点“播放”开始。';
+    document.getElementById('rope-explain').textContent = idx>=0 ? stages[idx].t : '点“播放”开始。';
   }
   function stop(){ if(timer){ clearInterval(timer); timer=null; } playing=false; document.getElementById('rope-play').textContent='▶ 播放'; }
-  function step(){ if(idx>=steps.length-1){ stop(); return; } idx++; render(); if(idx>=steps.length-1) stop(); }
+  function step(){ if(idx>=stages.length-1){ stop(); return; } idx++; render(); if(idx>=stages.length-1) stop(); }
   document.getElementById('rope-play').addEventListener('click', function(){
     if(playing){ stop(); return; }
-    if(idx>=steps.length-1){ idx=-1; render(); }
+    if(idx>=stages.length-1){ idx=-1; render(); }
     playing=true; this.textContent='⏸ 暂停';
-    timer=setInterval(step, 1000);
+    timer=setInterval(step, 1500);
   });
   document.getElementById('rope-next').addEventListener('click', function(){ stop(); step(); });
-  document.getElementById('rope-all').addEventListener('click', function(){ stop(); idx=steps.length-1; render(); });
+  document.getElementById('rope-all').addEventListener('click', function(){ stop(); idx=stages.length-1; render(); });
   document.getElementById('rope-reset').addEventListener('click', function(){ stop(); idx=-1; render(); });
   render();
 })();
 </script>
 
-位置 0 的词角度是 0，不转；位置 1 转 1 弧度；位置 2 转 2 弧度。第二对转得慢，位置 1 只转 0.01 弧度，[1, 1] → [0.99, 1.01]，几乎不动。
+### 走完的结果
+
+|  | 1 | 2 | 3 | 4 |
+| --- | --- | --- | --- | --- |
+| Token 0 | 1.00 | 0.00 | 1.00 | 0.00 |
+| Token 1 | -1.68 | 1.08 | 0.99 | 1.01 |
+| Token 2 | -1.33 | 0.49 | 0.00 | 0.00 |
+| Token 3 | -2.12 | -0.71 | 1.00 | 0.03 |
+
+Token 0 一点没变（角度是 0），位置越往后转得越多，第 1 组转得快、第 2 组转得慢，形状还是 (4, 4)。
+
+### 4. 代码对照与张量形状
+
+每一步的代码和形状变化：
+
+| 步骤 | 代码 | 张量变换 |
+| --- | --- | --- |
+| 预计算三角函数表 | cos_table, sin_table | (seq_len, d_k/2) = (4, 2)，旋转角度表给算出来 |
+| 拆分提取 x1, x2 | x1, x2 = rearrange(x, "... (d_half xy) -> ... d_half xy").unbind(dim=-1) | x (4, 4) → (4, 2, 2) → x1 (4, 2)，x2 (4, 2) |
+| 执行旋转 | x1_rot = x1 * cos - x2 * sin；x2_rot = x1 * sin + x2 * cos | (4, 2) * (4, 2) ± (4, 2) * (4, 2) → x1_rot (4, 2)，x2_rot (4, 2) |
+| 拼接回原始形状 | x_rot = torch.stack([x1_rot, x2_rot], dim=-1)；x_rot = rearrange(x_rot, "... d_half xy -> ... (d_half xy)") | x1_rot (4, 2)，x2_rot (4, 2) → (4, 2, 2) → (4, 4) |
+
+<details>
+<summary>想看代码：RoPE 长什么样（点开）</summary>
+
+```python
+def apply_rope(x, cos_table, sin_table):
+    # x: (batch, seq_len, d_k)
+    # Step 1: 拆成 x1（偶数列）和 x2（奇数列）
+    x1, x2 = rearrange(x, "... (d_half xy) -> ... d_half xy").unbind(dim=-1)
+    # Step 2: 旋转
+    x1_rot = x1 * cos_table - x2 * sin_table
+    x2_rot = x1 * sin_table + x2 * cos_table
+    # Step 3: 拼回
+    x_rot = torch.stack([x1_rot, x2_rot], dim=-1)
+    return rearrange(x_rot, "... d_half xy -> ... (d_half xy)")
+```
+
+`rearrange` 是 einops 的写法，`... (d_half xy)` 的意思是把最后一维 4 拆成 2 组、每组 2 个数；`unbind(dim=-1)` 是把最后一维拆开，变成两个张量。
+
+</details>
 
 ### 和原始位置编码的区别
 
@@ -299,32 +409,52 @@ $\theta$ 由位置 pos 和这一对是第几对决定：$\theta = pos \times 100
 
 ### 自测：RoPE 过关了吗
 
-**第 1 题**：RoPE 是在哪里加位置信息的？和原始位置编码有什么不同？
+**第 1 题**：RoPE 的公式是什么？$R^i$ 是什么样的矩阵？
 
 <details>
 <summary>点开看解析和答案</summary>
 
-原始位置编码在输入上加一个位置向量 P；RoPE 不在输入上加，而是在算 Q、K 的时候把每对数旋转一个角度，角度由位置决定。
+$\boldsymbol{q}'^{(i)} = R^i \boldsymbol{q}^{(i)}$，$R^i$ 是分块对角矩阵，对角线上是一串 2×2 的小旋转块，其他位置都是 0。每个小块 $R_{i,k} = \begin{pmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{pmatrix}$，把每两个数转一个角度。
 
 </details>
 
-**第 2 题**：[0, 2] 转 1 弧度之后是多少？长度变了吗？
+**第 2 题**：角度 $\theta_{i,k} = i / \Theta^{(2k-2)/d}$ 里，$i$ 和 $k$ 分别是什么？d=4 时第 1 组和第 2 组的角度各是多少？
 
 <details>
 <summary>点开看解析和答案</summary>
 
-x' = 0×0.54 - 2×0.84 = -1.68，y' = 0×0.84 + 2×0.54 = 1.08，变成 [-1.68, 1.08]。长度没变，都是 2，旋转只改方向不改长度。
+$i$ 是 token 下标（第几个词），$k$ 是两两分组后的组号。d=4 时第 1 组 $\theta = i / 10000^0 = i$，第 2 组 $\theta = i / 10000^{0.5} = i / 100$。第 1 组转得快，第 2 组转得慢。
 
 </details>
 
-**第 3 题**：为什么说 RoPE 的点积只和相对位置有关？
+**第 3 题**：实例里 Token 1 的 x1_rot 第一格 -1.68 是怎么算出来的？
 
 <details>
 <summary>点开看解析和答案</summary>
 
-两个词的 Q、K 各转了自己的角度，点积里的角度差就是它们的位置差。绝对位置同时加多少，角度差不变，所以点积只看相对位置。
+x1_rot = x1·cos - x2·sin。Token 1 的 x1 第一格是 0，x2 第一格是 2，cos 是 0.54，sin 是 0.84，所以 0×0.54 - 2×0.84 = -1.68。
 
 </details>
+
+**第 4 题**：为什么 Token 0 旋转完一点没变？
+
+<details>
+<summary>点开看解析和答案</summary>
+
+Token 0 的位置 $i=0$，角度 $\theta = 0$，cos 0 = 1、sin 0 = 0，旋转矩阵就是单位矩阵，转了等于没转。
+
+</details>
+
+**第 5 题**：为什么说 RoPE 的点积只和相对位置有关？
+
+<details>
+<summary>点开看解析和答案</summary>
+
+两个词的 Q、K 各转了自己的角度，点积里的角度差就是它们的位置差。绝对位置同时加多少，角度差不变，所以点积只看相对位置。旋转只改方向不改长度，向量的模长不变。
+
+</details>
+
+全答得出来，4.2 就过了。
 
 ## 4.3 多头自注意力：QKV、分数、遮罩、加权求和、拼接
 
