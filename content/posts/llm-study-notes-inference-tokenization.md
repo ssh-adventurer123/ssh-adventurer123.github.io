@@ -8,152 +8,99 @@ description: "大模型推理第一步：分词。文本怎么变成 token，再
 
 这是 [大模型推理](/posts/llm-study-notes-inference/) 的第一步，隶属于 [LLM 学习笔记](/posts/llm-study-notes/)。上一页是[先修](/posts/llm-study-notes-inference-prerequisites/)。
 
-## 为什么要分词
+这一页不堆文字：每个概念先看图、点一点，文字只用来解释图里发生了什么。
 
-模型只认识数字，不认识文字。分词是推理的第一步：把原始字符文本转换成 token ID 序列，模型才能处理。
+## 先看全图：文本怎么变成数字
 
-一句话走完分词：
+点下面任意一个 token，看它一路变成什么。
 
-> 文本 → token → token ID → 词向量
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<p style="font-size:18px;">猫 &nbsp;吃 &nbsp;鱼</p>
+<div id="flow-tokens"></div>
+<p id="flow-explain">点一个 token 试试。</p>
+</div>
+<script>
+(function(){
+  var toks=[{t:'猫',id:12,vec:[0.2,-0.5,0.8,0.1]},{t:'吃',id:45,vec:[-0.3,0.6,0.2,0.9]},{t:'鱼',id:78,vec:[0.7,0.1,-0.4,0.3]}];
+  var el=document.getElementById('flow-tokens');
+  el.innerHTML=toks.map(function(x,i){return '<button data-i="'+i+'" style="padding:10px 18px;margin:4px;font-size:16px;cursor:pointer;border-radius:8px;">'+x.t+'</button>';}).join('');
+  el.querySelectorAll('button').forEach(function(b){
+    b.addEventListener('click', function(){
+      var x=toks[+b.getAttribute('data-i')];
+      document.getElementById('flow-explain').innerHTML='“'+x.t+'” → token “'+x.t+'” → token ID <strong>'+x.id+'</strong> → 词向量 ['+x.vec.join(', ')+']（4 维，演示用）。3 个 token，输入形状是 (1, 3)。';
+    });
+  });
+})();
+</script>
 
-比如“猫 吃 鱼”：
+一句话：模型只认识数字。分词把文字变成 token，再把 token 变成整数 ID，模型才能处理。没有这一步，文本进不了模型。
 
-| 阶段 | 结果 |
-| --- | --- |
-| 文本 | 猫 吃 鱼 |
-| token | 猫、吃、鱼（3 个 token） |
-| token ID | [12, 45, 78]（举例，真实 ID 由词表决定） |
-| 输入形状 | (batch_size, sequence_length) = (1, 3) |
+## Token 是什么：不是字，也不是词
 
-分词器没什么存在感，但不可或缺。没有它，文本进不了模型。
-
-### Token 是什么
-
-Token 不是字，也不是词，是**子词（subword）**：比字大、比词小的一段文本。
+Token 是**子词**：比字大、比词小的一段文本。
 
 - 常见词整个是一个 token，比如“吃”
-- 罕见词会被拆成几个 token，比如一个生僻词拆成两三个 token
-- 词表（vocab）就是所有 token 的集合，词表大小 vocab_size 是词表里 token 的个数
-- 每个 token 在词表里有一个编号，就是 token ID
+- 罕见词会被拆成几个 token
+- 所有 token 的集合叫**词表（vocab）**，词表大小 vocab_size 是词表里 token 的个数
 
-词表越大，能整块表示的词越多，序列越短；词表越小，拆得越碎，序列越长。TinyStories 上训练的分词器词表是 10,000，OpenWebText 上是 32,000。
-
-#### 演示 1：文本怎么变成 token 再变成 ID，输入一段话试试
+### 演示：词表越大，序列越短
 
 <div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<input id="tok-input" type="text" value="猫 吃 鱼" style="width:220px;padding:6px;">
-<button id="tok-run" style="padding:6px 12px;cursor:pointer;">分词</button>
-<p id="tok-out">点“分词”试试，也可以把输入改成 hello world 或你好世界。</p>
+<label>词表大小 <input id="vocab-size" type="range" min="100" max="32000" step="100" value="10000" style="width:220px;"> <span id="vocab-size-val">10000</span></label>
+<p id="vocab-out"></p>
 </div>
 <script>
 (function(){
-  // 演示用的小词表，不是真实词表：ID 只是为了让你看到“一个 token 对应一个整数”
-  var vocab={"猫":12,"吃":45,"鱼":78,"你":203,"好":88,"世":91,"界":92,"hello":101,"world":102," ":0};
-  function run(){
-    var text=document.getElementById('tok-input').value;
-    var tokens=text.split(/(\s+)/).filter(function(x){return x!=='';});
-    // 英文按空格切，中文按字切，演示用
-    var flat=[];
-    tokens.forEach(function(t){
-      if(/^\s+$/.test(t)) return;
-      if(/^[a-zA-Z]+$/.test(t)) flat.push(t);
-      else { for(var i=0;i<t.length;i++) flat.push(t[i]); }
+  var s=document.getElementById('vocab-size');
+  function render(){
+    var v=+s.value;
+    document.getElementById('vocab-size-val').textContent=v;
+    var seq = v<1000 ? 18 : v<5000 ? 12 : v<15000 ? 8 : 6;
+    var bar='█'.repeat(seq);
+    document.getElementById('vocab-out').textContent='同一段话，词表 '+v+' 时大约需要 '+seq+' 个 token：'+bar+'。词表越大，能整块表示的词越多，序列越短。TinyStories 用 10,000，OpenWebText 用 32,000。';
+  }
+  s.addEventListener('input', render); render();
+})();
+</script>
+
+## 从字符到字节：一个字占几个字节
+
+文本进分词器前有三层：字符 → Unicode 码点 → UTF-8 字节。BBPE 不直接处理字符，在字节上学合并规则。
+
+点下面三个字，看它们的字节。
+
+<div style="border:1px solid #888;padding:12px;border-radius:8px;">
+<button class="utf-btn" data-ch="A" style="padding:10px 16px;margin:4px;cursor:pointer;">A</button>
+<button class="utf-btn" data-ch="你" style="padding:10px 16px;margin:4px;cursor:pointer;">你</button>
+<button class="utf-btn" data-ch="😀" style="padding:10px 16px;margin:4px;cursor:pointer;">😀</button>
+<p id="utf-out">点一个字。</p>
+</div>
+<script>
+(function(){
+  var data={'A':{code:65,bytes:[65]},'你':{code:20320,bytes:[228,189,160]},'😀':{code:128512,bytes:[240,159,152,128]}};
+  document.querySelectorAll('.utf-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      var d=data[b.getAttribute('data-ch')];
+      var boxes=d.bytes.map(function(x){return '<span style="display:inline-block;border:1px solid #888;border-radius:4px;padding:4px 8px;margin:2px;">'+x+'</span>';}).join('');
+      document.getElementById('utf-out').innerHTML='“'+b.getAttribute('data-ch')+'”的 Unicode 码点是 '+d.code+'，UTF-8 占 '+d.bytes.length+' 个字节：'+boxes;
     });
-    var ids=flat.map(function(t){ return vocab[t]!==undefined ? vocab[t] : ('?' ); });
-    document.getElementById('tok-out').textContent='token：['+flat.join(', ')+']，共 '+flat.length+' 个；token ID：['+ids.join(', ')+']；输入形状 (1, '+flat.length+')。';
-  }
-  document.getElementById('tok-run').addEventListener('click', run);
-  run();
+  });
 })();
 </script>
 
-## 从 Unicode 到 UTF-8 字节
-
-文本进入分词器前，通常要经过三层表示：字符、Unicode 码点和 UTF-8 字节。BBPE 不直接处理字符，而是在字节序列上学习合并规则。
-
-- **Unicode 码点**：Unicode 为每个字符分配一个整数编号，即码点。例如，`A` 的码点是 `65`，`你` 的码点是 `20320`。Python 用 `ord()` 查询码点，用 `chr()` 从码点还原字符。
-- **UTF-8** 是 Unicode 的变长编码（占 1~4 个字节）：它把字符串转换成字节序列，再通过解码还原；ASCII 通常占 1 个字节，中文占 3 个字节，emoji 占 4 个字节。
-
-```python
-# ord：字符 -> Unicode 码点
-print(ord("A"))                 # -> 65
-print(ord("你"))                 # -> 20320
-
-# chr：Unicode 码点 -> 字符
-print(chr(65), chr(20320))       # -> A 你
-
-text = "A你😀"
-encoded = text.encode("utf-8")   # 字符串 -> bytes（字节序列）
-print(repr(encoded))             # -> b'A\xe4\xbd\xa0\xf0\x9f\x98\x80'
-print(list(encoded))             # -> [65, 228, 189, 160, 240, 159, 152, 128]
-print(encoded.decode("utf-8"))   # bytes -> 字符串
-                                  # -> A你😀
-```
-
-数一下：`A` 占 1 个字节（65），`你` 占 3 个字节（228, 189, 160），`😀` 占 4 个字节（240, 159, 152, 128）。一共 8 个字节。
-
-#### 演示 2：一个字占几个字节，输入一个字试试
-
-<div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<input id="utf-input" type="text" value="你" maxlength="2" style="width:80px;padding:6px;">
-<button id="utf-run" style="padding:6px 12px;cursor:pointer;">看字节</button>
-<p id="utf-out"></p>
-</div>
-<script>
-(function(){
-  function run(){
-    var ch=document.getElementById('utf-input').value;
-    if(!ch){ document.getElementById('utf-out').textContent='先输入一个字。'; return; }
-    var c=ch[0];
-    var code=c.codePointAt(0);
-    var bytes=new TextEncoder().encode(c);
-    document.getElementById('utf-out').textContent='“'+c+'”的 Unicode 码点是 '+code+'，UTF-8 占 '+bytes.length+' 个字节：['+Array.from(bytes).join(', ')+']。';
-  }
-  document.getElementById('utf-run').addEventListener('click', run);
-  run();
-})();
-</script>
-
-### 为什么在 UTF-8 字节上训练，而不是 UTF-16 / UTF-32
-
-- UTF-8 的基础单位是字节，只有 256 种可能，初始词表就是 0~255 这 256 个字节 token，任意文本都能覆盖，不会出现未知字符。
-- UTF-16 / UTF-32 的基础单位更大，初始词表要大得多，而且一个字符的字节数固定，浪费也多。
-- 字节级分词能覆盖任意文本，但序列会比较长。BPE 通过反复合并高频的相邻 token pair，用更大的词表换取更短的序列。
+记住这张图：ASCII 1 个字节，中文 3 个，emoji 4 个。字节级分词的基础单位是字节，只有 256 种可能，初始词表就是 0~255，任意文本都能覆盖，不会出现未知字符。这就是为什么用 UTF-8，不用 UTF-16 / UTF-32：后者基础单位更大、初始词表大得多，还浪费。
 
 ### 逐字节解码为什么是错的
 
-`decode_utf8_bytes_to_str_wrong(b) = "".join(bytes([x]).decode("utf-8") for x in b)`，错在把每个字节单独解码。中文一个字占 3 个字节，单独一个字节解不出来，会报错或者变成乱码。
+一个中文占 3 个字节，单独一个字节解不出来。`b = "你".encode("utf-8")` 是 `[228, 189, 160]`，逐字节解码时第一个字节 228 就失败。正确做法是整个字节串一起解码：`b.decode("utf-8")`。一个怎么解都错的两字节序列：`b"\xff\xff"`，0xff 不是合法的 UTF-8 起始字节。
 
-比如 `b = "你".encode("utf-8")`，也就是 `[228, 189, 160]`，逐字节解码时第一个字节 228 单独解码就失败。正确做法是把整个字节串一起解码：`b.decode("utf-8")`。
+## BPE：高频的先合成一个 token
 
-一个无法解码成任何字符的两字节序列：`b"\xff\xff"`，0xff 不是合法的 UTF-8 起始字节，怎么解都是错的。
+字节级分词能覆盖任意文本，但序列太长。BPE 反复合并最高频的相邻一对，用更大的词表换更短的序列。
 
-## BPE 训练流程：字节级字节对编码（BBPE）
+### 演示：合并一步，看序列怎么变短
 
-BBPE 是字节对编码（BPE）的改进变体，是 GPT、千问等系列模型正在使用的分词算法。
-
-**拿到原始输入语料与特殊字符列表后，BPE 训练的工作过程如下：**
-
-1. **初始化词表**：加入 256 个基础字节 token（0~255）与所有特殊 token。
-2. **预分词**：以特殊 token 为分隔符进行切分；再对普通片段应用 GPT-2 正则。
-
-```python
-PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-re.findall(PAT, "some text that i'll pre-tokenize")
-# ['some', ' text', ' that', ' i', "'ll", ' pre', '-', 'tokenize']
-```
-
-GPT-2 正则的意思：字母连在一起、数字连在一起、空格跟着后面的词走、缩写 `'ll` 单独成段。预分词先把文本切成小段，BPE 只在每一段内部合并，绝不跨段。
-
-3. **BPE 合并循环**（重复多轮，直到词表大小达到目标值）：
-   1. 统计所有片段相邻 token pair 的出现次数；
-   2. 选择频次最高的 pair，平局时取字节序更大的 pair；
-   3. 将 pair 合并成新 token，加入词表并记录 merge；
-   4. 再次完整遍历所有片段，替换本轮选中的 pair。
-
-#### 演示 3：BPE 合并，点一步合并一步
-
-语料是 low、low、lower 三个词。一开始每个字母都是一个 token，点“合并一步”，把出现次数最多的相邻一对合成一个新 token。
+语料是 low、low、lower。点“合并一步”，出现次数最多的一对合成一个新 token。
 
 <div style="border:1px solid #888;padding:12px;border-radius:8px;">
 <button id="bpe-step" style="padding:6px 12px;cursor:pointer;">合并一步</button>
@@ -194,116 +141,41 @@ GPT-2 正则的意思：字母连在一起、数字连在一起、空格跟着�
 })();
 </script>
 
-第一轮会合并 `l` + `o` 还是 `o` + `w`？数一下：`l o` 出现 3 次，`o w` 也出现 3 次，平局取字节序更大的 pair，`o w` 的字节序更大，所以先合并 `o w`。这就是“平局时取字节序更大的 pair”的意思，保证合并顺序是确定的。
+第一轮 `l o` 和 `o w` 都出现 3 次，平局取字节序更大的 pair，所以先合并 `o w`。合并完再完整遍历所有片段、重新统计、再选、再合并，重复多轮，直到词表达到目标大小。
 
-### train_bpe：训练函数的样子
+### 合并前先预分词：GPT-2 正则怎么切
+
+BPE 只在每一段内部合并，绝不跨段。下面这句话，颜色不同就是不同的段。
+
+<div style="border:1px solid #888;padding:12px;border-radius:8px;">
+<p style="font-size:16px;"><span style="background:#dbeafe;padding:2px 4px;">some</span><span style="background:#fee2e2;padding:2px 4px;"> text</span><span style="background:#dcfce7;padding:2px 4px;"> that</span><span style="background:#fef3c7;padding:2px 4px;"> i</span><span style="background:#ede9fe;padding:2px 4px;">'ll</span><span style="background:#dbeafe;padding:2px 4px;"> pre</span><span style="background:#fee2e2;padding:2px 4px;">-</span><span style="background:#dcfce7;padding:2px 4px;">tokenize</span></p>
+<p>规律：字母连在一起、数字连在一起、空格跟着后面的词走、缩写 <code>'ll</code> 单独成段。特殊 token 比如 <code>&lt;|endoftext|&gt;</code> 更早一步就被切出来，整体保留，不参与合并。</p>
+</div>
+
+<details>
+<summary>想看代码：train_bpe 长什么样（点开）</summary>
 
 ```python
-def train_bpe(
-    input_path: str,
-    vocab_size: int,
-    special_tokens: list[str],
-) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    """
-    input_path: str  训练语料文件路径
-    vocab_size: int  目标词表大小
-    special_tokens: list[str]  特殊 token 列表
-    return: (vocab, merges)
-        vocab: dict[int, bytes]  token ID 到字节串的映射
-        merges: list[tuple[bytes, bytes]]  按创建顺序排列的合并规则
-    """
+def train_bpe(input_path, vocab_size, special_tokens):
+    # 1. 初始化词表：256 个基础字节 + 特殊 token
+    # 2. 预分词：特殊 token 切分，再用 GPT-2 正则
+    # 3. 合并循环：统计 pair → 选最高频 → 合并 → 再遍历替换
+    # 返回 (vocab, merges)
     pass
 ```
 
-注意三点：预分词分两步，特殊 token 不进入普通片段和 pair 统计；频次相同时取字节序更大的 pair；可选优化是维护 `pair_to_ids` 反向索引，选中 pair 后只处理受影响片段。
+TinyStories：`train_bpe("data/TinyStories/TinyStoriesV2-GPT4-train.txt", 10000, ["<|endoftext|>"])`
+OpenWebText：`train_bpe("data/openwebtext/owt_train.txt", 32000, ["<|endoftext|>"])`
+产物是 `vocab.json` 和 `merge.txt`，下一节载入它们做编码和解码。
 
-### 在真实数据集上训练 BPE
+</details>
 
-- **TinyStories** 是用 GPT-4 生成的短篇儿童故事集，语言简单、干净、格式统一。训练入口：`train_bpe("data/TinyStories/TinyStoriesV2-GPT4-train.txt", 10000, ["<|endoftext|>"])`，词表 10,000。
-- **OpenWebText** 是 GPT-2 所用 WebText 数据集的开源复现，由 Reddit 高赞外链网页正文抓取而来，规模更大、覆盖面更广。训练入口：`train_bpe("data/openwebtext/owt_train.txt", 32000, ["<|endoftext|>"])`，词表 32,000。
+## 编码和解码：来回走一遍
 
-训练产物保存在 `results/tokenizer/<数据集名>/`，包括 `vocab.json` 和 `merge.txt`，下一节载入它们做编码和解码。
-
-最长的 BPE token 只统计 BPE 合并产生的 token，不考虑特殊 token。OpenWebText 的语料更杂，最长 token 通常比 TinyStories 的更长、更不像一个完整词，因为它要覆盖更多罕见组合。
-
-## 分词器的编码与解码：Tokenizer
-
-训练得到的 `vocab` 和 `merges` 需要封装成一个分词器类：`encode` 方法把文本转换为 token ID，`decode` 方法把 token ID 还原为文本。
-
-### 编码（encode）：四步
-
-1. **两步预分词**（与 BPE 训练保持一致，需要额外保留特殊 token）：
-   1. **特殊 token 切分**：以特殊 token 为分隔符切分文本，特殊 token 本身整体保留、直接映射为对应 ID，不参与后续合并。
-   2. **GPT-2 正则匹配**：对每个普通片段应用 GPT-2 正则，切成更小的 piece。
-2. **字节映射**：把每个 piece 编码为 UTF-8 字节，再通过反向词表（字节序列 -> ID）逐字节映射为基础 token ID。
-3. **BPE 合并**：在片段内反复选出合并优先级最高的相邻 pair（`merges` 中 rank 最小者）并合并，直到没有可合并的 pair 为止。
-4. **拼接成完整编码序列**：拼接所有预分词段的编码序列，输出完整的 Token ID 序列。
-
-### 解码（decode）：三步
-
-`[1, 2, 3, 4]` 查词表将每个 token ID 转换成字节串，把所有字节串拼接在一起，再用 UTF-8 解码为文本。解码遇到非法的 UTF-8 字节时使用 `bytes.decode("utf-8", errors="replace")` 兜底。
-
-### 特殊 token
-
-`<|endoftext|>` 是文档结束符。原始语料由许多独立文档组成，通常把它们拼接成一条序列，只在文档之间插入分隔符，这些符号有自己的 token ID。特殊 token 永远整体作为一个 token，不参与合并，不会被拆开。
-
-### Tokenizer 类的样子
-
-```python
-import regex as re
-from typing import Iterable, Iterator
-
-PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
-
-class Tokenizer:
-    def __init__(
-        self,
-        vocab: dict[int, bytes] | None = None,
-        merges: list[tuple[bytes, bytes]] | None = None,
-        special_tokens: list[str] | None = None,
-    ) -> None:
-        """
-        vocab: dict[int, bytes]  词表，token ID 到该 token 对应字节串的映射
-        merges: list[tuple[bytes, bytes]]  按创建顺序排列的合并规则
-        special_tokens: list[str] | None  特殊 token（如 "<|endoftext|>"），
-            永远整体作为一个 token，不参与合并
-        """
-        pass
-
-    def from_files(
-        self,
-        vocab_filepath: str,
-        merges_filepath: str,
-        special_tokens: list[str] | None = None,
-    ) -> None:
-        """
-        vocab_filepath: str  vocab.json 路径（保存时 bytes 被转成十六进制字符串）
-        merges_filepath: str  merge.txt 路径（每行形如 [b' ', b't']）
-        special_tokens: list[str] | None  特殊 token 列表
-        """
-        pass
-
-    def encode(self, text: str) -> list[int]:
-        """
-        text: str  待编码的原始文本
-        return: list[int]  token ID 列表
-        """
-        pass
-
-    def decode(self, ids: list[int]) -> str:
-        """
-        ids: list[int]  token ID 列表
-        return: str  还原出的文本
-        """
-        pass
-```
-
-注意：通过反向词表将基础字节映射到 token ID（基础字节可能被映射到 0~255 以外的范围）；编码时按 `merges` 的创建顺序选择优先级最高的可合并 pair。
-
-#### 演示 4：编码再解码，绕一圈回到原文
+编码是文本 → token ID，解码是 token ID → 文本，是一条路的两个方向。
 
 <div style="border:1px solid #888;padding:12px;border-radius:8px;">
+<p>文本 → 预分词 → 字节 → BPE 合并 → token ID &nbsp;&nbsp;|&nbsp;&nbsp; token ID → 字节串 → UTF-8 解码 → 文本</p>
 <input id="ed-input" type="text" value="猫 吃 鱼" style="width:220px;padding:6px;">
 <button id="ed-run" style="padding:6px 12px;cursor:pointer;">编码 → 解码</button>
 <p id="ed-out"></p>
@@ -328,6 +200,25 @@ class Tokenizer:
   run();
 })();
 </script>
+
+编码四步：预分词（特殊 token 先切出来）→ 字节映射（逐字节变基础 token ID）→ BPE 合并（选 merges 里 rank 最小的 pair 反复合）→ 拼接成完整 ID 序列。解码三步：查词表变回字节串 → 拼在一起 → UTF-8 解码成文本，非法字节用 `errors="replace"` 兜底。
+
+<details>
+<summary>想看代码：Tokenizer 类长什么样（点开）</summary>
+
+```python
+class Tokenizer:
+    def __init__(self, vocab=None, merges=None, special_tokens=None):
+        pass  # vocab：ID → 字节串；merges：按创建顺序的合并规则
+    def from_files(self, vocab_filepath, merges_filepath, special_tokens=None):
+        pass  # 载入 vocab.json 和 merge.txt
+    def encode(self, text: str) -> list[int]:
+        pass  # 文本 → token ID 列表
+    def decode(self, ids: list[int]) -> str:
+        pass  # token ID 列表 → 文本
+```
+
+</details>
 
 ## 自测：分词过关了吗
 
