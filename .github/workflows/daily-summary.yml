@@ -48,6 +48,14 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python3 papers.py
+      - name: Add Product Hunt products
+        # Appends a "## Product Hunt 新品" section (3-5 products launched in
+        # the last 24h, ranked by Groq, deduped against recent posts) as the
+        # third section, after AI papers. Same never-fails-the-run contract.
+        working-directory: radar
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python3 products.py
       - name: Commit and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
