@@ -57,15 +57,9 @@ menu:
     - name: 模型与研究
       url: /categories/large-models/
       weight: 13
-    - name: AI项目研究台
-      url: /ai-workbench/
-      weight: 14
     - name: 开源项目
       url: /categories/projects/
       weight: 15
-    - name: 产品与大厂
-      url: /categories/products/
-      weight: 16
     - name: 每日AI动态
       url: https://ssh-adventurer123.github.io/ai-news-radar/
       weight: 17
