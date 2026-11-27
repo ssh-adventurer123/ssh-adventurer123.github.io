@@ -598,4 +598,8 @@ x_rearr = rearrange(x, "b s (h d) -> b h s d", h=2, d=4)
 
 </details>
 
-全答得出来，先修就过了，进第一步：分词。
+全答得出来，先修就过了。
+
+---
+
+下一步：[第一步：分词，文本怎么变成数字](/posts/llm-study-notes-inference-tokenization/)
