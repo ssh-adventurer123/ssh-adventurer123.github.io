@@ -39,6 +39,15 @@ jobs:
         run: uv run horizon --hours 24
       - name: Convert digest to blog post
         run: bash radar/convert-to-blog.sh
+      - name: Add arXiv papers
+        # Appends a "## AI 论文" section (3-5 papers from the last 7 days,
+        # ranked by Groq for the user's interests, deduped against recent
+        # posts) to today's post. Never fails the run: it exits 0 when there
+        # is no post yet, no fresh paper, or the section is already present.
+        working-directory: radar
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python3 papers.py
       - name: Commit and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
