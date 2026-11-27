@@ -48,9 +48,6 @@ menu:
     - name: 个人洞察
       url: /categories/my-insights/
       weight: 10
-    - name: 名人洞察
-      url: /categories/celebrity-insights/
-      weight: 11
     - name: 开源项目
       url: /categories/projects/
       weight: 15
