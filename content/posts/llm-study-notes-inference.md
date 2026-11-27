@@ -8,6 +8,8 @@ description: "LLM 学习笔记的子项目：大模型推理。"
 
 这是 LLM 学习笔记的子项目：**大模型推理**，隶属于 [LLM 学习笔记](/posts/llm-study-notes/)。
 
+<div style="display:none">
+
 ## 先修
 
 ## 第一步：分词，文本怎么变成数字
@@ -23,3 +25,5 @@ description: "LLM 学习笔记的子项目：大模型推理。"
 ## 第六步：解码，下一个词怎么出来
 
 ## 第七步：推理工程进阶
+
+</div>
