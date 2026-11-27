@@ -29,7 +29,7 @@ description: "大模型推理第四步：Transformer 块逐个拆，RMSNorm、Ro
 
 - [4.1 RMSNorm：归一化](/posts/llm-study-notes-inference-rmsnorm/)
 - 4.2 RoPE：旋转位置编码（还没写）
-- 4.3 多头自注意力：QKV、注意力分数、遮罩 + Softmax、加权求和、拼接 + 投影（还没写）
+- [4.3 多头自注意力：QKV、注意力分数、遮罩 + Softmax、加权求和、拼接 + 投影](/posts/llm-study-notes-inference-attention/)
 - 4.4 FFN（SwiGLU）：前馈网络（还没写）
 
 其中 4.3 注意力最大，会按参考站的 03 到 07 一步步拆：QKV → 注意力分数 → 遮罩 + Softmax → 加权求和 → 拼接 + 投影，每一步都有动画。

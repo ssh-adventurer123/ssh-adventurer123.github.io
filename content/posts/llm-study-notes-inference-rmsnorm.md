@@ -200,6 +200,6 @@ $g$ 是可学习的参数，归一化之后逐元素乘它，模型可以自己�
 
 ---
 
-下一步：[4.2 RoPE：旋转位置编码](/posts/llm-study-notes-inference-transformer-block/)（还没写，先回第四步目录）
+下一步：[4.3 多头自注意力](/posts/llm-study-notes-inference-attention/)
 
 回目录：[第四步：Transformer 块，逐个拆](/posts/llm-study-notes-inference-transformer-block/)
