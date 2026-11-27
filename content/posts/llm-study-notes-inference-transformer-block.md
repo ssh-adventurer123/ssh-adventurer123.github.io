@@ -235,11 +235,26 @@ $\boldsymbol{q}'^{(i)} = R^i \boldsymbol{q}^{(i)}$
 
 旋转矩阵 $R^i$ 是**分块对角矩阵**，对角线上是一串 2×2 的小旋转块，其他位置都是 0：
 
-$R^i = \begin{pmatrix} R_{i,1} & 0 & 0 & \cdots & 0 \\ 0 & R_{i,2} & 0 & \cdots & 0 \\ 0 & 0 & R_{i,3} & \cdots & 0 \\ \vdots & \vdots & \vdots & \ddots & \vdots \\ 0 & 0 & 0 & \cdots & R_{i,d/2} \end{pmatrix}$
+<div style="overflow-x:auto;">
+<table style="border-collapse:collapse;text-align:center;display:inline-table;">
+<tr><td rowspan="5" style="border-left:2px solid #888;border-top:2px solid #888;border-bottom:2px solid #888;width:8px;"></td><td style="padding:8px 12px;"><i>R</i><sub>i,1</sub></td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;">⋯</td><td style="padding:8px 12px;">0</td><td rowspan="5" style="border-right:2px solid #888;border-top:2px solid #888;border-bottom:2px solid #888;width:8px;"></td></tr>
+<tr><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;"><i>R</i><sub>i,2</sub></td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;">⋯</td><td style="padding:8px 12px;">0</td></tr>
+<tr><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;"><i>R</i><sub>i,3</sub></td><td style="padding:8px 12px;">⋯</td><td style="padding:8px 12px;">0</td></tr>
+<tr><td style="padding:8px 12px;">⋮</td><td style="padding:8px 12px;">⋮</td><td style="padding:8px 12px;">⋮</td><td style="padding:8px 12px;">⋱</td><td style="padding:8px 12px;">⋮</td></tr>
+<tr><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;">⋯</td><td style="padding:8px 12px;"><i>R</i><sub>i,d/2</sub></td></tr>
+</table>
+</div>
+
+$R^i$ = 上面这个大矩阵。对角线上的 $R_{i,1}$、$R_{i,2}$、$R_{i,3}$……一直到 $R_{i,d/2}$，每个都是一个 2×2 的小旋转块；对角线以外全是 0。
 
 其中每个二维旋转子矩阵 $R_{i,k}$ 将元素两两分组进行旋转：
 
-$R_{i,k} = \begin{pmatrix} \cos(\theta_{i,k}) & \sin(\theta_{i,k}) \\ -\sin(\theta_{i,k}) & \cos(\theta_{i,k}) \end{pmatrix}$
+<div style="overflow-x:auto;">
+<table style="border-collapse:collapse;text-align:center;display:inline-table;">
+<tr><td rowspan="2" style="border-left:2px solid #888;border-top:2px solid #888;border-bottom:2px solid #888;width:8px;"></td><td style="padding:8px 12px;">cos θ<sub>i,k</sub></td><td style="padding:8px 12px;">sin θ<sub>i,k</sub></td><td rowspan="2" style="border-right:2px solid #888;border-top:2px solid #888;border-bottom:2px solid #888;width:8px;"></td></tr>
+<tr><td style="padding:8px 12px;">−sin θ<sub>i,k</sub></td><td style="padding:8px 12px;">cos θ<sub>i,k</sub></td></tr>
+</table>
+</div>
 
 对应的旋转角度 $\theta_{i,k}$ 计算公式：
 
@@ -257,9 +272,21 @@ $\theta_{i,k} = \frac{i}{\Theta^{(2k-2)/d}}$
 
 以 4 维行向量 $\boldsymbol{q}^{(i)} = (q_0, q_1, q_2, q_3)$ 为例，分成两组：
 
-**第 1 组（k=1）：** $(q_0, q_1)$ 转角度 $\theta_{i,1}$
+**第 1 组（k=1）：** $(q_0, q_1)$ 转角度 $\theta_{i,1}$，行向量乘上面那个 2×2 矩阵：
 
-$(q_0', q_1') = (q_0, q_1) \begin{pmatrix} \cos\theta_{i,1} & \sin\theta_{i,1} \\ -\sin\theta_{i,1} & \cos\theta_{i,1} \end{pmatrix} = (q_0 \cos\theta_{i,1} - q_1 \sin\theta_{i,1},\; q_0 \sin\theta_{i,1} + q_1 \cos\theta_{i,1})$
+<div style="overflow-x:auto;">
+<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;">
+<tr><td style="padding:8px 12px;">(q<sub>0</sub>', q<sub>1</sub>')</td><td style="padding:8px 12px;">=</td><td style="padding:8px 12px;">(q<sub>0</sub>, q<sub>1</sub>)</td><td style="padding:8px 12px;">×</td>
+</tr>
+</table>
+<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;">
+<tr><td rowspan="2" style="border-left:2px solid #888;border-top:2px solid #888;border-bottom:2px solid #888;width:8px;"></td><td style="padding:8px 12px;">cos θ<sub>i,1</sub></td><td style="padding:8px 12px;">sin θ<sub>i,1</sub></td><td rowspan="2" style="border-right:2px solid #888;border-top:2px solid #888;border-bottom:2px solid #888;width:8px;"></td></tr>
+<tr><td style="padding:8px 12px;">−sin θ<sub>i,1</sub></td><td style="padding:8px 12px;">cos θ<sub>i,1</sub></td></tr>
+</table>
+<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;">
+<tr><td style="padding:8px 12px;">=</td><td style="padding:8px 12px;">(q<sub>0</sub> cos θ<sub>i,1</sub> − q<sub>1</sub> sin θ<sub>i,1</sub>, q<sub>0</sub> sin θ<sub>i,1</sub> + q<sub>1</sub> cos θ<sub>i,1</sub>)</td></tr>
+</table>
+</div>
 
 **第 2 组（k=2）：** $(q_2, q_3)$ 转角度 $\theta_{i,2}$，算法一模一样，只是角度不同
 
@@ -414,7 +441,7 @@ def apply_rope(x, cos_table, sin_table):
 <details>
 <summary>点开看解析和答案</summary>
 
-$\boldsymbol{q}'^{(i)} = R^i \boldsymbol{q}^{(i)}$，$R^i$ 是分块对角矩阵，对角线上是一串 2×2 的小旋转块，其他位置都是 0。每个小块 $R_{i,k} = \begin{pmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{pmatrix}$，把每两个数转一个角度。
+$\boldsymbol{q}'^{(i)} = R^i \boldsymbol{q}^{(i)}$，$R^i$ 是分块对角矩阵，对角线上是一串 2×2 的小旋转块，其他位置都是 0。每个小块就是上面第 1 节画出来的那个 2×2 大矩阵，把每两个数转一个角度。
 
 </details>
 
