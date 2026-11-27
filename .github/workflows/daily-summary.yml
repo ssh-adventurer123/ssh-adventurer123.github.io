@@ -50,7 +50,7 @@ jobs:
             echo "No new post, nothing to commit."
             exit 0
           fi
-          git commit -m "daily ai news: $(date -u +%Y-%m-%d)"
+          git commit -m "daily ai news: $(TZ=Asia/Shanghai date +%Y-%m-%d)"
           git push origin main
           # A push made with GITHUB_TOKEN does not trigger other workflows,
           # so start the Hugo deploy explicitly.

@@ -16,7 +16,10 @@ if [ -z "$newest" ]; then
   exit 0
 fi
 
-date=$(basename "$newest" | cut -c1-10)
+# The digest filename uses the UTC date, but the run happens at 07:23 Beijing
+# (23:23 UTC the day before), so the UTC date is one day behind what the
+# reader sees. Label the post with the Beijing date instead.
+date=$(TZ=Asia/Shanghai date +%Y-%m-%d)
 target="content/posts/daily-$date.md"
 new_body=$(strip_frontmatter "$newest")
 
