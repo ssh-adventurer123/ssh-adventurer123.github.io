@@ -25,7 +25,7 @@ Return valid JSON only:
 {{
   "score": <number from 0 to 10>,
   "reason": "<concise explanation>",
-  "summary": "<one-sentence summary>",
+  "summary": "<one-sentence summary in Chinese>",
   "tags": ["<tag>", "..."]
 }}"""
 

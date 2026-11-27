@@ -321,9 +321,16 @@ class HorizonOrchestrator:
             # 7. Generate and save daily summaries for each configured language
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             for lang in self.config.ai.languages:
+                # Keep items whose enrichment failed: the summarizer falls back
+                # to the analysis summary, so a rate-limited enrichment must not
+                # shrink the digest. (Analysis summaries are requested in Chinese.)
                 language_items = [
                     item for item in important_items
-                    if item.processing and lang in item.processing.artifacts
+                    if item.processing
+                    and (
+                        lang in item.processing.artifacts
+                        or item.processing.analysis is not None
+                    )
                 ]
                 summarizer = DailySummarizer(
                     profile_names=self.profiles.names,
