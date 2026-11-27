@@ -26,153 +26,171 @@ description: "大模型推理第四步：Transformer 块逐个拆，RMSNorm、Ro
 形状全程不变：输入 3 行 × 4 列，输出还是 3 行 × 4 列。
 
 
-## 4.1 RMSNorm：归一化
+## 4.1 RMSNorm：均方根归一化
 
-RMSNorm 是归一化：把每个 token 的向量缩放到合适大小，让数值不要太大也不要太小，后面的注意力算起来才稳定。
+原始 Transformer 用层归一化（LayerNorm），我们用它的简化版：均方根归一化（RMSNorm）。先把一句话记下来：
 
-公式是：
+**RMSNorm 就是把每个 token 的向量，除以它自己的均方根，再乘一个可学习的增益 $g$。**
 
-$\text{RMSNorm}(x) = \frac{x}{\sqrt{\text{mean}(x^2) + \epsilon}} \odot g$
+### 公式，一个符号一个符号讲
 
-- $\text{mean}(x^2)$：一个 token 的 4 个数，各自平方，再求平均
-- $\sqrt{\text{mean}(x^2) + \epsilon}$：均方根，$\epsilon$ 是个很小的数（比如 $10^{-6}$），防止除以 0
-- $\odot g$：逐元素乘一个可学习的参数 $g$，形状和 x 一样
+给定激活向量 $\boldsymbol{a} \in \mathbb{R}^{d_{model}}$，RMSNorm 对每个激活分量 $a_i$ 的缩放计算如下：
 
-关键点：**RMSNorm 是按行算的**，每个 token 独立归一化，token 之间互不影响。形状不变，输入 3 行 × 4 列，输出还是 3 行 × 4 列。
+$\text{RMSNorm}(a_i) = \frac{a_i}{\text{RMS}(\boldsymbol{a})} g_i$
 
-和 LayerNorm 的区别：LayerNorm 要减均值再除以标准差，RMSNorm 不减均值，只除以均方根，少一次计算，效果差不多，所以 LLaMA 这些模型都用 RMSNorm。
+其中：
 
-## 演示：逐格动画算一遍
+$\text{RMS}(\boldsymbol{a}) = \sqrt{\frac{1}{d_{model}} \sum_{i=1}^{d_{model}} a_i^2 + \epsilon}$
 
-拿一个 token 的向量 x = [1, 2, 0.5, -1]，$g$ = [1, 1, 1, 1]，$\epsilon$ 很小忽略不计。点“播放”看它一格一格算。
+| 符号 | 是什么 | 记住它 |
+| --- | --- | --- |
+| $\boldsymbol{a}$ | 一个 token 的向量，$d_{model}$ 个数 | 就是要归一化的那一行 |
+| $a_i$ | 向量里的第 $i$ 个数 | 逐个算，每个数单独除 |
+| $a_i^2$ | 每个数先平方 | 平方是为了让正负都变成正，大的更大 |
+| $\frac{1}{d_{model}} \sum a_i^2$ | 平方之后求平均 | 这一行整体有多大 |
+| $\epsilon$ | 很小的数，通常固定取 $10^{-5}$ | 防止除以 0，平时可以忽略 |
+| $\text{RMS}(\boldsymbol{a})$ | 上面那个平均数开根号 | 这一行的“均方根”，一个数 |
+| $g_i$ | 可学习的增益参数，$d_{model}$ 个 | 模型自己学，决定每个维度放大还是缩小 |
+
+### 输入输出长什么样
+
+|  | 形状 | 说明 |
+| --- | --- | --- |
+| 输入张量 x | (batch_size, sequence_length, d_model) | 一批数据，每批几个样本，每个样本几个 token，每个 token 几维 |
+| 输出张量 x_norm | (batch_size, sequence_length, d_model) | 形状完全不变，只改数值大小 |
+
+**形状不变**，这是归一化最重要的一点：进来什么形状，出去还是什么形状。
+
+### 工作流程：拿一个 4×4 的张量走一遍
+
+输入张量 X，4 个 token，每个 4 维：
+
+|  | 1 | 2 | 3 | 4 |
+| --- | --- | --- | --- | --- |
+| Token 0 | 2 | 2 | -2 | -2 |
+| Token 1 | 0 | 3 | 0 | 4 |
+| Token 2 | 1 | 1 | 1 | 1 |
+| Token 3 | 10 | 20 | 20 | 10 |
+
+**先看一眼**：Token 3 那一行是 10、20、20、10，比别人大一个数量级。如果不处理，它进注意力一乘就更大，梯度直接炸掉。这就是 RMSNorm 要解决的问题。
+
+### 演示：点任意一行，看它怎么算
+
+下面是完整的 4 行，每行点一下，就能看到这一行的平方、均值、均方根、除完的结果。也可以点“播放”，一行一行自动走。
 
 <div style="border:1px solid #888;padding:14px;border-radius:8px;">
-<p>x（1 行 × 4 列）→ 均方根 → 除 → × g → 输出（1 行 × 4 列）</p>
 <div id="rms-anim" style="overflow-x:auto;"></div>
-<p id="rms-explain">点“播放”开始。</p>
+<p id="rms-explain">点下面任意一行，或者点“播放”。</p>
 <button id="rms-play" style="padding:6px 12px;margin:2px;cursor:pointer;">▶ 播放</button>
-<button id="rms-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一格</button>
+<button id="rms-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一行</button>
 <button id="rms-all" style="padding:6px 12px;margin:2px;cursor:pointer;">全部算完</button>
 <button id="rms-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重置</button>
 </div>
 <script>
 (function(){
-  var x=[1,2,0.5,-1], g=[1,1,1,1];
-  var sq=x.map(function(v){return v*v;});
-  var mean=(sq[0]+sq[1]+sq[2]+sq[3])/4;
-  var rms=Math.sqrt(mean);
-  var out=x.map(function(v){return Math.round(v/rms*100)/100;});
-  // steps: 4 squares, mean, rms, 4 divides
-  var steps=[];
-  for(var k=0;k<4;k++) steps.push({type:'sq', k:k});
-  steps.push({type:'mean'});
-  steps.push({type:'rms'});
-  for(var k2=0;k2<4;k2++) steps.push({type:'div', k:k2});
+  var X=[[2,2,-2,-2],[0,3,0,4],[1,1,1,1],[10,20,20,10]];
+  var names=['Token 0','Token 1','Token 2','Token 3'];
+  var sq=X.map(function(r){ return r.map(function(v){return v*v;}); });
+  var mean=X.map(function(r,i){ return sq[i].reduce(function(a,b){return a+b;},0)/4; });
+  var rms=mean.map(function(m){ return Math.sqrt(m+1e-5); });
+  var out=X.map(function(r,i){ return r.map(function(v){ return Math.round(v/rms[i]*100)/100; }); });
   var idx=-1, timer=null, playing=false;
   function cell(v, hl){
     var bg = hl==='cur' ? '#facc15' : hl==='done' ? '#2563eb' : '#1f2937';
-    var col = hl ? '#fff' : '#fff';
-    if(hl==='cur') col='#000';
-    return '<td style="border:1px solid #888;padding:10px 14px;background:'+bg+';color:'+col+';">'+v+'</td>';
+    var col = hl==='cur' ? '#000' : '#fff';
+    return '<td style="border:1px solid #888;padding:8px 12px;background:'+bg+';color:'+col+';">'+v+'</td>';
   }
   function render(){
-    var html='<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;"><tr><td style="padding:4px;">x =</td>';
-    for(var k=0;k<4;k++){
-      var hl='';
-      if(idx>=0 && steps[idx] && ((steps[idx].type==='sq'&&steps[idx].k===k)||(steps[idx].type==='div'&&steps[idx].k===k))) hl='cur';
-      html+=cell(x[k], hl);
+    var html='<table style="border-collapse:collapse;text-align:center;">';
+    html+='<tr><td style="padding:4px;">输入 X</td><td style="padding:4px;">平方</td><td style="padding:4px;">均值</td><td style="padding:4px;">均方根</td><td style="padding:4px;">除完 x′</td></tr>';
+    for(var i=0;i<4;i++){
+      var done = idx>=i, cur = idx===i;
+      html+='<tr data-i="'+i+'" style="cursor:pointer;">';
+      html+='<td style="border:1px solid #888;padding:8px 12px;background:'+(cur?'#facc15':(done?'#2563eb':'#1f2937'))+';color:'+(cur?'#000':'#fff')+'">'+names[i]+'：'+X[i].join(', ')+'</td>';
+      html+='<td style="border:1px solid #888;padding:8px 12px;">'+(done?sq[i].join(', '):'?')+'</td>';
+      html+='<td style="border:1px solid #888;padding:8px 12px;">'+(done?Math.round(mean[i]*100)/100:'?')+'</td>';
+      html+='<td style="border:1px solid #888;padding:8px 12px;">'+(done?Math.round(rms[i]*100)/100:'?')+'</td>';
+      html+='<td style="border:1px solid #888;padding:8px 12px;">'+(done?out[i].join(', '):'?')+'</td>';
+      html+='</tr>';
     }
-    html+='</tr><tr><td style="padding:4px;">x² =</td>';
-    for(var k3=0;k3<4;k3++){
-      var done = idx>=0 && steps.slice(0,idx+1).some(function(s){return s.type==='sq'&&s.k===k3;});
-      html+=cell(done?sq[k3]:'?', done?'done':'');
-    }
-    html+='</tr></table>';
-    html+='<span style="margin:0 8px;">→</span>';
-    html+='<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;"><tr><td style="padding:4px;">均值 =</td>';
-    var meanDone = idx>=0 && steps.slice(0,idx+1).some(function(s){return s.type==='mean';});
-    html+=cell(meanDone?Math.round(mean*100)/100:'?', meanDone?'done':'');
-    html+='</tr><tr><td style="padding:4px;">均方根 =</td>';
-    var rmsDone = idx>=0 && steps.slice(0,idx+1).some(function(s){return s.type==='rms';});
-    html+=cell(rmsDone?Math.round(rms*100)/100:'?', rmsDone?'done':'');
-    html+='</tr></table>';
-    html+='<span style="margin:0 8px;">→</span>';
-    html+='<table style="border-collapse:collapse;text-align:center;display:inline-table;vertical-align:middle;"><tr><td style="padding:4px;">输出 =</td>';
-    for(var k4=0;k4<4;k4++){
-      var done2 = idx>=0 && steps.slice(0,idx+1).some(function(s){return s.type==='div'&&s.k===k4;});
-      html+=cell(done2?out[k4]:'?', done2?'done':'');
-    }
-    html+='</tr></table>';
+    html+='</table>';
     document.getElementById('rms-anim').innerHTML=html;
     var ex=document.getElementById('rms-explain');
-    if(idx<0){ ex.textContent='点“播放”开始。'; return; }
-    var s=steps[idx];
-    if(s.type==='sq') ex.textContent='第 '+(s.k+1)+' 格平方：'+x[s.k]+'² = '+sq[s.k]+'。';
-    else if(s.type==='mean') ex.textContent='均值 = (1 + 4 + 0.25 + 1) / 4 = '+Math.round(mean*100)/100+'。';
-    else if(s.type==='rms') ex.textContent='均方根 = √'+Math.round(mean*100)/100+' ≈ '+Math.round(rms*100)/100+'。';
-    else ex.textContent='输出第 '+(s.k+1)+' 格：'+x[s.k]+' / '+Math.round(rms*100)/100+' = '+out[s.k]+'。';
+    if(idx<0){ ex.textContent='点下面任意一行，或者点“播放”。'; return; }
+    ex.textContent=names[idx]+'：平方 ['+sq[idx].join(', ')+']，均值 = '+Math.round(mean[idx]*100)/100+'，均方根 ≈ '+Math.round(rms[idx]*100)/100+'，每格除以它，得到 ['+out[idx].join(', ')+']。';
+    document.querySelectorAll('#rms-anim tr[data-i]').forEach(function(tr){
+      tr.addEventListener('click', function(){ stop(); idx=+tr.getAttribute('data-i'); render(); });
+    });
   }
   function stop(){ if(timer){ clearInterval(timer); timer=null; } playing=false; document.getElementById('rms-play').textContent='▶ 播放'; }
-  function step(){ if(idx>=steps.length-1){ stop(); return; } idx++; render(); if(idx>=steps.length-1) stop(); }
+  function step(){ if(idx>=3){ stop(); return; } idx++; render(); if(idx>=3) stop(); }
   document.getElementById('rms-play').addEventListener('click', function(){
     if(playing){ stop(); return; }
-    if(idx>=steps.length-1){ idx=-1; render(); }
+    if(idx>=3){ idx=-1; render(); }
     playing=true; this.textContent='⏸ 暂停';
-    timer=setInterval(step, 900);
+    timer=setInterval(step, 1200);
   });
   document.getElementById('rms-next').addEventListener('click', function(){ stop(); step(); });
-  document.getElementById('rms-all').addEventListener('click', function(){ stop(); idx=steps.length-1; render(); });
+  document.getElementById('rms-all').addEventListener('click', function(){ stop(); idx=3; render(); });
   document.getElementById('rms-reset').addEventListener('click', function(){ stop(); idx=-1; render(); });
   render();
 })();
 </script>
 
-算一遍：$x^2$ = [1, 4, 0.25, 1]，均值 = 1.5625，均方根 ≈ 1.25，输出 = [0.8, 1.6, 0.4, -0.8]。形状不变，还是 1 行 × 4 列。
+### 算完长什么样：前后对比
 
-### 为什么要归一化
+|  | 归一化前 | 均方根 | 归一化后 |
+| --- | --- | --- | --- |
+| Token 0 | 2, 2, -2, -2 | 2.00 | 1.0, 1.0, -1.0, -1.0 |
+| Token 1 | 0, 3, 0, 4 | 2.50 | 0.0, 1.2, 0.0, 1.6 |
+| Token 2 | 1, 1, 1, 1 | 1.00 | 1.0, 1.0, 1.0, 1.0 |
+| Token 3 | 10, 20, 20, 10 | 15.81 | 0.63, 1.26, 1.26, 0.63 |
 
-不归一化，x 里的数有大有小，注意力里 QKᵀ 一乘就更大，Softmax 直接饱和，梯度传不下去。归一化把每个 token 的向量拉到同一量级，训练才稳。
+看 Token 3 那一行最清楚：**归一化前是 10、20，归一化后是 0.63、1.26**，一下子回到 1 附近。每一行内部的比例没变（20 还是 10 的两倍），但整行的大小被拉平了。
 
-### g 是什么
+### 最后一步：乘上可学习的增益 g
 
-$g$ 是可学习的参数，形状和 x 的最后一维一样（这里是 4 个数）。归一化之后再乘 $g$，模型可以自己决定每个维度放大还是缩小。推理时 $g$ 是固定的数。
+归一化之后，再逐元素乘一个可学习的参数 $g$（$d_{model}$ 个数，形状和 x 的最后一维一样）：
 
-<details>
-<summary>想看代码：RMSNorm 长什么样（点开）</summary>
+$Y = X_{norm} \odot g$
 
-```python
-class RMSNorm(torch.nn.Module):
-    def __init__(self, d_model, eps=1e-6):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(d_model))  # g
-        self.eps = eps
+$g$ 是模型自己学出来的：归一化把所有维度拉到同一量级，$g$ 再决定每个维度放大还是缩小。推理时 $g$ 是固定的数。上面演示里 $g$ 都是 1，所以 $Y = X_{norm}$；真实模型里 $g$ 每个数都不一样。
 
-    def forward(self, x):
-        # 按最后一维算均方根
-        rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
-        return x / rms * self.weight
-```
+### RMSNorm 到底好在哪
 
-`keepdim=True` 的意思是：算完均值还保留最后一维是 1，这样 x / rms 才能广播对齐。
+1. **防止数值爆炸**：Token 3 那行 10、20 不处理，进注意力一乘就更大，梯度传着传着就炸了。RMSNorm 把每行都拉到 1 附近，有效防止深层网络的前向传播数值失控。
+2. **比 LayerNorm 简单**：LayerNorm 要先减均值再除以标准差，RMSNorm 省略了计算去均值的步骤，少一次计算，效果差不多，LLaMA 这些模型都用它。
 
-</details>
+### 和 LayerNorm 的区别，一句话
 
-## 自测：RMSNorm 过关了吗
+|  | LayerNorm | RMSNorm |
+| --- | --- | --- |
+| 减均值 | 要 | 不要 |
+| 除什么 | 标准差 | 均方根 |
+| 计算量 | 多一步 | 少一步 |
+| 现在谁用 | 原始 Transformer | LLaMA、GPT 等现代模型 |
 
-### 第 1 题
+### 自测：RMSNorm 过关了吗
 
-x = [1, 2, 0.5, -1]，均方根是多少？输出第一格是多少？
+**第 1 题**：Token 1 [0, 3, 0, 4] 的均方根是多少？归一化后第一格是多少？
 
 <details>
 <summary>点开看解析和答案</summary>
 
-$x^2$ = [1, 4, 0.25, 1]，均值 = 6.25 / 4 = 1.5625，均方根 = √1.5625 = 1.25。输出第一格 = 1 / 1.25 = 0.8。
+平方是 [0, 9, 0, 16]，均值 = 25 / 4 = 6.25，均方根 = √6.25 = 2.5。归一化后第一格 = 0 / 2.5 = 0，第二格 = 3 / 2.5 = 1.2。
 
 </details>
 
-### 第 2 题
+**第 2 题**：Token 3 归一化前是 10、20，归一化后是 0.63、1.26，比例变了吗？大小变了吗？
 
-RMSNorm 是按行算还是按列算？token 之间会互相影响吗？
+<details>
+<summary>点开看解析和答案</summary>
+
+比例没变：20 还是 10 的两倍，1.26 还是 0.63 的两倍。大小变了：整行除以均方根 15.81，从 10、20 拉回 1 附近。这就是归一化干的事：改大小，不改比例。
+
+</details>
+
+**第 3 题**：RMSNorm 是按行算还是按列算？token 之间会互相影响吗？
 
 <details>
 <summary>点开看解析和答案</summary>
@@ -181,36 +199,21 @@ RMSNorm 是按行算还是按列算？token 之间会互相影响吗？
 
 </details>
 
-### 第 3 题
-
-RMSNorm 和 LayerNorm 有什么区别？
+**第 4 题**：归一化之后形状变了吗？$g$ 是干什么的？
 
 <details>
 <summary>点开看解析和答案</summary>
 
-LayerNorm 先减均值再除以标准差，RMSNorm 不减均值，只除以均方根。RMSNorm 少一次计算，效果差不多，LLaMA 这些模型都用 RMSNorm。
+没变。输入 (batch, seq, d_model)，输出还是 (batch, seq, d_model)。$g$ 是可学习的参数，归一化之后逐元素乘它，模型可以自己决定每个维度放大还是缩小。推理时它是固定的数。
 
 </details>
 
-### 第 4 题
-
-归一化之后形状变了吗？
+**第 5 题**：RMSNorm 和 LayerNorm 有什么区别？为什么现代模型用 RMSNorm？
 
 <details>
 <summary>点开看解析和答案</summary>
 
-没变。输入 3 行 × 4 列，输出还是 3 行 × 4 列。归一化只改数值大小，不改形状。
-
-</details>
-
-### 第 5 题
-
-$g$ 是干什么的？推理时它会变吗？
-
-<details>
-<summary>点开看解析和答案</summary>
-
-$g$ 是可学习的参数，归一化之后逐元素乘它，模型可以自己决定每个维度放大还是缩小。推理时它是固定的数，不会变。
+LayerNorm 先减均值再除以标准差，RMSNorm 不减均值，只除以均方根。RMSNorm 少一次计算，效果差不多，现代模型都用它。
 
 </details>
 
