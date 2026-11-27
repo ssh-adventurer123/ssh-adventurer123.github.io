@@ -51,12 +51,6 @@ menu:
     - name: 名人洞察
       url: /categories/celebrity-insights/
       weight: 11
-    - name: 智能体与编程
-      url: /categories/ai-programming/
-      weight: 12
-    - name: 模型与研究
-      url: /categories/large-models/
-      weight: 13
     - name: 开源项目
       url: /categories/projects/
       weight: 15
