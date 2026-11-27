@@ -17,6 +17,7 @@ description: "大模型推理第一步：分词。文本怎么变成 token，再
 <div style="border:1px solid #888;padding:14px;border-radius:8px;">
 <p style="font-size:18px;">猫 &nbsp;吃 &nbsp;鱼</p>
 <div id="flow-tokens"></div>
+<div id="flow-visual" style="margin-top:10px;"></div>
 <p id="flow-explain">点一个 token 试试。</p>
 </div>
 <script>
@@ -24,10 +25,25 @@ description: "大模型推理第一步：分词。文本怎么变成 token，再
   var toks=[{t:'猫',id:12,vec:[0.2,-0.5,0.8,0.1]},{t:'吃',id:45,vec:[-0.3,0.6,0.2,0.9]},{t:'鱼',id:78,vec:[0.7,0.1,-0.4,0.3]}];
   var el=document.getElementById('flow-tokens');
   el.innerHTML=toks.map(function(x,i){return '<button data-i="'+i+'" style="padding:10px 18px;margin:4px;font-size:16px;cursor:pointer;border-radius:8px;">'+x.t+'</button>';}).join('');
+  function matrixTable(cells, label){
+    var html='<p style="margin:8px 0 4px;">'+label+'</p><table style="border-collapse:collapse;text-align:center;">';
+    html+='<tr>'+cells.map(function(c){return '<td style="border:1px solid #888;padding:8px 14px;">'+c+'</td>';}).join('')+'</tr></table>';
+    return html;
+  }
   el.querySelectorAll('button').forEach(function(b){
     b.addEventListener('click', function(){
-      var x=toks[+b.getAttribute('data-i')];
-      document.getElementById('flow-explain').innerHTML='“'+x.t+'” → token “'+x.t+'” → token ID <strong>'+x.id+'</strong> → 词向量 ['+x.vec.join(', ')+']（4 维，演示用）。3 个 token，输入形状是 (1, 3)。';
+      var idx=+b.getAttribute('data-i'), x=toks[idx];
+      var idRow=matrixTable(toks.map(function(y,i){return '<strong>'+y.id+'</strong><br><span style="font-size:12px;">'+y.t+'</span>';}), 'token ID 矩阵：1 行 × 3 列，每个格子是一个 token 的 ID');
+      var shapeRow='<p style="margin:8px 0 4px;">输入形状：1 行 × 3 列（1 个样本，3 个 token）</p><table style="border-collapse:collapse;text-align:center;"><tr><td style="border:1px solid #888;padding:8px 14px;background:#dbeafe;">猫</td><td style="border:1px solid #888;padding:8px 14px;">吃</td><td style="border:1px solid #888;padding:8px 14px;">鱼</td></tr></table>';
+      var vecHtml='<p style="margin:8px 0 4px;">“'+x.t+'”的词向量：4 行 × 1 列（4 维，演示用），正数蓝色，负数红色</p><table style="border-collapse:collapse;">';
+      x.vec.forEach(function(v){
+        var w=Math.round(Math.abs(v)*100);
+        var color=v>=0?'#2563eb':'#dc2626';
+        vecHtml+='<tr><td style="border:1px solid #888;padding:6px 10px;">'+v+'</td><td style="border:1px solid #888;padding:6px 10px;width:120px;"><span style="display:inline-block;height:12px;width:'+w+'px;background:'+color+';"></span></td></tr>';
+      });
+      vecHtml+='</table>';
+      document.getElementById('flow-visual').innerHTML=idRow+shapeRow+vecHtml;
+      document.getElementById('flow-explain').textContent='点的是“'+x.t+'”，它的 ID 是 '+x.id+'，在上面那张 1 行 × 3 列的 ID 矩阵里就是第 '+(idx+1)+' 格。';
     });
   });
 })();
@@ -196,9 +212,9 @@ OpenWebText：`train_bpe("data/openwebtext/owt_train.txt", 32000, ["<|endoftext|
     {title:'第 1 步 / 共 6 步：预分词', visual:chip('猫','#2563eb')+chip('吃','#dc2626')+chip('鱼','#059669'), explain:'预分词先把文本切成段：没有特殊 token，GPT-2 正则按字切开，得到 3 个段：猫、吃、鱼。BPE 只在每一段内部合并，绝不跨段。'},
     {title:'第 2 步 / 共 6 步：字节映射', visual:chip('猫','#2563eb','字节')+bytebox(231)+bytebox(140)+bytebox(171)+'<br>'+chip('吃','#dc2626','字节')+bytebox(229)+bytebox(144)+bytebox(131)+'<br>'+chip('鱼','#059669','字节')+bytebox(233)+bytebox(177)+bytebox(188), explain:'每个字变成 UTF-8 字节，再逐字节映射为基础 token ID。猫是 3 个字节 [231, 140, 171]，吃是 [229, 144, 131]，鱼是 [233, 177, 188]。一共 9 个字节。'},
     {title:'第 3 步 / 共 6 步：BPE 合并', visual:chip('猫','#2563eb','ID 12')+chip('吃','#dc2626','ID 45')+chip('鱼','#059669','ID 78'), explain:'在每一段里反复选 merges 中 rank 最小的相邻 pair 合并：猫的 3 个字节合成一个 token，ID 是 12；吃合成 45；鱼合成 78。9 个字节变成了 3 个 token。'},
-    {title:'第 4 步 / 共 6 步：拼接成 ID 序列', visual:chip('12','#2563eb','猫')+chip('45','#dc2626','吃')+chip('78','#059669','鱼')+'<br><span>形状 (1, 3)，这就是模型收到的输入。</span>', explain:'把 3 段的 ID 拼在一起，得到完整编码 [12, 45, 78]。模型拿到的是这个整数序列，不是文字。'},
+    {title:'第 4 步 / 共 6 步：拼接成 ID 序列', visual:'<p style="margin:4px 0;">ID 矩阵：1 行 × 3 列</p><table style="border-collapse:collapse;text-align:center;"><tr><td style="border:1px solid #888;padding:8px 14px;background:#dbeafe;"><strong>12</strong><br><span style="font-size:12px;">猫</span></td><td style="border:1px solid #888;padding:8px 14px;"><strong>45</strong><br><span style="font-size:12px;">吃</span></td><td style="border:1px solid #888;padding:8px 14px;"><strong>78</strong><br><span style="font-size:12px;">鱼</span></td></tr></table><p style="margin:4px 0;">1 行是 1 个样本，3 列是 3 个 token，这张表就是模型收到的输入。</p>', explain:'把 3 段的 ID 拼在一起，得到上面这张 1 行 × 3 列的表。模型拿到的是这个整数表，不是文字。'},
     {title:'第 5 步 / 共 6 步：解码，走回去', visual:chip('12','#2563eb')+'→'+bytebox(231)+bytebox(140)+bytebox(171)+'<br>'+chip('45','#dc2626')+'→'+bytebox(229)+bytebox(144)+bytebox(131)+'<br>'+chip('78','#059669')+'→'+bytebox(233)+bytebox(177)+bytebox(188)+'<br><span style="font-size:18px;">→ 猫 吃 鱼</span>', explain:'解码反过来走：查词表把每个 ID 变回字节串，拼在一起，再用 UTF-8 解码成文本，又回到了“猫 吃 鱼”。非法字节用 errors="replace" 兜底。'},
-    {title:'第 6 步 / 共 6 步：走完了', visual:'<span style="font-size:18px;">猫 吃 鱼 → [12, 45, 78] → 猫 吃 鱼</span>', explain:'编码和解码是一条路的两个方向：去的时候文字变数字，回的时候数字变文字。'}
+    {title:'第 6 步 / 共 6 步：走完了', visual:'<span style="font-size:18px;">猫 吃 鱼 → 下面这张 1 行 × 3 列的 ID 表 → 猫 吃 鱼</span><table style="border-collapse:collapse;text-align:center;margin-top:8px;"><tr><td style="border:1px solid #888;padding:8px 14px;"><strong>12</strong><br><span style="font-size:12px;">猫</span></td><td style="border:1px solid #888;padding:8px 14px;"><strong>45</strong><br><span style="font-size:12px;">吃</span></td><td style="border:1px solid #888;padding:8px 14px;"><strong>78</strong><br><span style="font-size:12px;">鱼</span></td></tr></table>', explain:'编码和解码是一条路的两个方向：去的时候文字变数字，回的时候数字变文字。'}
   ];
   var i=0;
   var names=['原始','预分词','字节','合并','拼接','解码','走完'];
@@ -245,7 +261,13 @@ class Tokenizer:
 <details>
 <summary>点开看解析和答案</summary>
 
-3 个 token，形状是 (1, 3)。1 是 batch_size，3 是 sequence_length。模型拿到的是整数 token ID 序列，不是文字。
+3 个 token，输入是一张 1 行 × 3 列的表：
+
+| 猫 | 吃 | 鱼 |
+| --- | --- | --- |
+| 12 | 45 | 78 |
+
+1 行是 batch_size（1 个样本），3 列是 sequence_length（3 个 token）。模型拿到的是这张整数表，不是文字。
 
 </details>
 
