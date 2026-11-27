@@ -172,32 +172,46 @@ OpenWebText：`train_bpe("data/openwebtext/owt_train.txt", 32000, ["<|endoftext|
 
 ## 编码和解码：来回走一遍
 
-编码是文本 → token ID，解码是 token ID → 文本，是一条路的两个方向。
+编码是文本 → token ID，解码是 token ID → 文本，是一条路的两个方向。下面用“猫 吃 鱼”一步一步走，点“下一步”看每一步发生了什么。
 
-<div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<p>文本 → 预分词 → 字节 → BPE 合并 → token ID &nbsp;&nbsp;|&nbsp;&nbsp; token ID → 字节串 → UTF-8 解码 → 文本</p>
-<input id="ed-input" type="text" value="猫 吃 鱼" style="width:220px;padding:6px;">
-<button id="ed-run" style="padding:6px 12px;cursor:pointer;">编码 → 解码</button>
-<p id="ed-out"></p>
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<p id="ed-stage-label" style="font-weight:bold;">第 0 步 / 共 6 步：原始文本</p>
+<div id="ed-progress" style="margin:8px 0;"></div>
+<div id="ed-visual" style="min-height:90px;padding:10px;border:1px dashed #888;border-radius:6px;"></div>
+<p id="ed-explain">一句话“猫 吃 鱼”，还没进分词器。</p>
+<button id="ed-prev" style="padding:6px 12px;cursor:pointer;">← 上一步</button>
+<button id="ed-next" style="padding:6px 12px;cursor:pointer;">下一步 →</button>
+<button id="ed-reset" style="padding:6px 12px;cursor:pointer;">重来</button>
 </div>
 <script>
 (function(){
-  var vocab={"猫":12,"吃":45,"鱼":78,"你":203,"好":88,"世":91,"界":92,"hello":101,"world":102};
-  var rev={}; Object.keys(vocab).forEach(function(k){ rev[vocab[k]]=k; });
-  function run(){
-    var text=document.getElementById('ed-input').value;
-    var tokens=[];
-    text.split(/(\s+)/).filter(function(x){return x!=='';}).forEach(function(t){
-      if(/^\s+$/.test(t)) return;
-      if(/^[a-zA-Z]+$/.test(t)) tokens.push(t);
-      else { for(var i=0;i<t.length;i++) tokens.push(t[i]); }
-    });
-    var ids=tokens.map(function(t){ return vocab[t]!==undefined ? vocab[t] : '?'; });
-    var back=ids.map(function(id){ return rev[id]!==undefined ? rev[id] : '?'; }).join(' ');
-    document.getElementById('ed-out').textContent='encode：['+tokens.join(', ')+'] → ['+ids.join(', ')+']；decode：['+ids.join(', ')+'] → "'+back+'"（词表里没有的字会变成 ?，真实词表不会有这个问题）。';
+  function chip(t, color, sub){
+    return '<span style="display:inline-block;padding:8px 12px;margin:3px;border-radius:8px;background:'+color+';color:#fff;">'+t+(sub?'<br><span style="font-size:12px;">'+sub+'</span>':'')+'</span>';
   }
-  document.getElementById('ed-run').addEventListener('click', run);
-  run();
+  function bytebox(n){
+    return '<span style="display:inline-block;border:1px solid #888;border-radius:4px;padding:4px 6px;margin:2px;">'+n+'</span>';
+  }
+  var stages=[
+    {title:'第 0 步 / 共 6 步：原始文本', visual:'<span style="font-size:20px;">猫 吃 鱼</span>', explain:'一句话“猫 吃 鱼”，还没进分词器。'},
+    {title:'第 1 步 / 共 6 步：预分词', visual:chip('猫','#2563eb')+chip('吃','#dc2626')+chip('鱼','#059669'), explain:'预分词先把文本切成段：没有特殊 token，GPT-2 正则按字切开，得到 3 个段：猫、吃、鱼。BPE 只在每一段内部合并，绝不跨段。'},
+    {title:'第 2 步 / 共 6 步：字节映射', visual:chip('猫','#2563eb','字节')+bytebox(231)+bytebox(140)+bytebox(171)+'<br>'+chip('吃','#dc2626','字节')+bytebox(229)+bytebox(144)+bytebox(131)+'<br>'+chip('鱼','#059669','字节')+bytebox(233)+bytebox(177)+bytebox(188), explain:'每个字变成 UTF-8 字节，再逐字节映射为基础 token ID。猫是 3 个字节 [231, 140, 171]，吃是 [229, 144, 131]，鱼是 [233, 177, 188]。一共 9 个字节。'},
+    {title:'第 3 步 / 共 6 步：BPE 合并', visual:chip('猫','#2563eb','ID 12')+chip('吃','#dc2626','ID 45')+chip('鱼','#059669','ID 78'), explain:'在每一段里反复选 merges 中 rank 最小的相邻 pair 合并：猫的 3 个字节合成一个 token，ID 是 12；吃合成 45；鱼合成 78。9 个字节变成了 3 个 token。'},
+    {title:'第 4 步 / 共 6 步：拼接成 ID 序列', visual:chip('12','#2563eb','猫')+chip('45','#dc2626','吃')+chip('78','#059669','鱼')+'<br><span>形状 (1, 3)，这就是模型收到的输入。</span>', explain:'把 3 段的 ID 拼在一起，得到完整编码 [12, 45, 78]。模型拿到的是这个整数序列，不是文字。'},
+    {title:'第 5 步 / 共 6 步：解码，走回去', visual:chip('12','#2563eb')+'→'+bytebox(231)+bytebox(140)+bytebox(171)+'<br>'+chip('45','#dc2626')+'→'+bytebox(229)+bytebox(144)+bytebox(131)+'<br>'+chip('78','#059669')+'→'+bytebox(233)+bytebox(177)+bytebox(188)+'<br><span style="font-size:18px;">→ 猫 吃 鱼</span>', explain:'解码反过来走：查词表把每个 ID 变回字节串，拼在一起，再用 UTF-8 解码成文本，又回到了“猫 吃 鱼”。非法字节用 errors="replace" 兜底。'},
+    {title:'第 6 步 / 共 6 步：走完了', visual:'<span style="font-size:18px;">猫 吃 鱼 → [12, 45, 78] → 猫 吃 鱼</span>', explain:'编码和解码是一条路的两个方向：去的时候文字变数字，回的时候数字变文字。'}
+  ];
+  var i=0;
+  var names=['原始','预分词','字节','合并','拼接','解码','走完'];
+  function render(){
+    document.getElementById('ed-stage-label').textContent=stages[i].title;
+    document.getElementById('ed-visual').innerHTML=stages[i].visual;
+    document.getElementById('ed-explain').textContent=stages[i].explain;
+    document.getElementById('ed-progress').innerHTML=names.map(function(n,k){return '<span style="padding:3px 7px;margin:2px;border-radius:12px;background:'+(k===i?'#2563eb':'#ddd')+';color:'+(k===i?'#fff':'#000')+';font-size:12px;">'+n+'</span>';}).join('→');
+  }
+  document.getElementById('ed-next').addEventListener('click', function(){ if(i<stages.length-1){ i++; render(); } });
+  document.getElementById('ed-prev').addEventListener('click', function(){ if(i>0){ i--; render(); } });
+  document.getElementById('ed-reset').addEventListener('click', function(){ i=0; render(); });
+  render();
 })();
 </script>
 
