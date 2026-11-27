@@ -10,6 +10,12 @@ theme: PaperMod
 outputs:
   home: [HTML, RSS]
 
+# 每日速递正文里有 <details>、<a id> 这类 HTML 标签，要原样输出
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+
 # 分类和标签：文章 front matter 里写 categories: ["my-insights"] 就会自动归到对应栏目
 taxonomies:
   category: categories
@@ -52,7 +58,7 @@ menu:
       url: /categories/projects/
       weight: 15
     - name: 每日AI动态
-      url: /daily/
+      url: /categories/daily-ai-news/
       weight: 17
     - name: 我的开源
       url: https://github.com/ssh-adventurer123?tab=repositories
