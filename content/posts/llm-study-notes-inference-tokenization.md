@@ -319,6 +319,6 @@ BPE 合并时，频次最高的 pair 被合并后，下一步干什么？
 
 ---
 
-下一步：[第二步：Transformer 整体长什么样](/posts/llm-study-notes-inference/)（还没写，先回目录）
+下一步：[第二步：Transformer 整体长什么样](/posts/llm-study-notes-inference-transformer-overview/)
 
 回目录：[大模型推理](/posts/llm-study-notes-inference/)
