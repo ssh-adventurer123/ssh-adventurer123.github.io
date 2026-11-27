@@ -36,7 +36,7 @@ params:
   # 首页大字介绍
   homeInfoParams:
     Title: "Wang 的 AI 博客"
-    Content: "每天学一点 AI，记录、拆解、分享。栏目后面再细填，先把站跑起来。"
+    Content: "日拱一卒"
   socialIcons:
     - name: github
       url: "https://github.com/ssh-adventurer123"
