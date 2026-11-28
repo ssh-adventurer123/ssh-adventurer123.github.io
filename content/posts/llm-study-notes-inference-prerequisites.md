@@ -123,6 +123,27 @@ description: "大模型推理的先修：数学、Python、PyTorch 与 Tensor �
 
 $a = [1, 2, 3]$，$b = [4, 5, 6]$，点积 $a \cdot b = 1\times4 + 2\times5 + 3\times6 = 32$。点积越大，两个向量越“像”，这就是注意力分数的雏形。
 
+<div style="border:1px solid #888;padding:12px;border-radius:8px;">
+<p>a = [1, 2, 3]，b = [4, 5, 6]。点一项，算一项。</p>
+<button class="dot-term" data-v="4" style="padding:8px 12px;margin:2px;cursor:pointer;">1×4 = 4</button>
+<button class="dot-term" data-v="10" style="padding:8px 12px;margin:2px;cursor:pointer;">2×5 = 10</button>
+<button class="dot-term" data-v="18" style="padding:8px 12px;margin:2px;cursor:pointer;">3×6 = 18</button>
+<p id="dot-out">还没点。点积是三项加起来。</p>
+</div>
+<script>
+(function(){
+  var sum=0, n=0;
+  document.querySelectorAll('.dot-term').forEach(function(b){
+    b.addEventListener('click', function(){
+      if(b.disabled) return;
+      b.disabled=true; b.style.opacity=0.5;
+      sum+=+b.getAttribute('data-v'); n++;
+      document.getElementById('dot-out').textContent = n<3 ? '已算 '+n+' 项，累计 '+sum+'，还差 '+(3-n)+' 项。' : 'a · b = 4 + 10 + 18 = 32。点积越大，两个向量越“像”，这就是注意力分数的雏形。';
+    });
+  });
+})();
+</script>
+
 #### 演示 4：矩阵乘法，点结果格子看它怎么来
 
 <div id="matmul-demo" style="border:1px solid #888;padding:12px;border-radius:8px;">
@@ -155,7 +176,42 @@ $a = [1, 2, 3]$，$b = [4, 5, 6]$，点积 $a \cdot b = 1\times4 + 2\times5 + 3\
 
 ## 0.2 Python 基础
 
-Python 是一门计算机编程语言。下面这段代码是先修的全部 Python 要点，逐行看，输出在注释里。
+Python 是一门计算机编程语言。先看一个能点的演示，再看要点，完整代码折在下面，输出在注释里。
+
+#### 演示 5：列表分片，拖动看取到谁
+
+<div style="border:1px solid #888;padding:12px;border-radius:8px;">
+<p>arr = [1, 2, 3, 4, 5]</p>
+<label>起点 <input id="slice-s" type="range" min="0" max="4" step="1" value="1" style="width:150px;"> <span id="slice-s-val">1</span></label>
+<label>终点 <input id="slice-e" type="range" min="1" max="5" step="1" value="4" style="width:150px;"> <span id="slice-e-val">4</span></label>
+<p id="slice-out">arr[1:4] = [2, 3, 4]，取下标 1、2、3，不取 4。</p>
+</div>
+<script>
+(function(){
+  var arr=[1,2,3,4,5];
+  function render(){
+    var s=+document.getElementById('slice-s').value, e=+document.getElementById('slice-e').value;
+    document.getElementById('slice-s-val').textContent=s;
+    document.getElementById('slice-e-val').textContent=e;
+    if(e<=s){ document.getElementById('slice-out').textContent='arr['+s+':'+e+'] = []，终点必须大于起点。'; return; }
+    document.getElementById('slice-out').textContent='arr['+s+':'+e+'] = ['+arr.slice(s,e).join(', ')+']，取下标 '+s+' 到 '+(e-1)+'，不取 '+e+'。';
+  }
+  document.getElementById('slice-s').addEventListener('input', render);
+  document.getElementById('slice-e').addEventListener('input', render);
+  render();
+})();
+</script>
+
+### 关键点，一句话一个
+
+- `self` 就是实例自己。`self.dim` 是这个实例的属性，`self.forward()` 是这个实例的方法。
+- `__init__` 在 `Module(dim=4)` 那一刻自动跑，用来把参数存下来。
+- 分片左闭右开：`arr[1:4]` 取下标 1、2、3，不取 4。
+- `f"..."` 是 f-string，大括号里的变量会被算出来再拼进字符串。
+- Transformer 里所有模块都是类，都是这个套路：`__init__` 里建参数，`forward` 里写计算流程。
+
+<details>
+<summary>展开看完整代码：先修的全部 Python 要点（输出在注释里）</summary>
 
 ```python
 # 1. 变量与基础类型
@@ -203,41 +259,32 @@ print(f"net.dim: {net.dim}")  # net.dim: 4
 print(f"net.forward(3) 的结果: {net.forward(3)}")  # 结果为 12
 ```
 
-### 关键点，一句话一个
-
-- `self` 就是实例自己。`self.dim` 是这个实例的属性，`self.forward()` 是这个实例的方法。
-- `__init__` 在 `Module(dim=4)` 那一刻自动跑，用来把参数存下来。
-- 分片左闭右开：`arr[1:4]` 取下标 1、2、3，不取 4。
-- `f"..."` 是 f-string，大括号里的变量会被算出来再拼进字符串。
-- Transformer 里所有模块都是类，都是这个套路：`__init__` 里建参数，`forward` 里写计算流程。
-
-#### 演示 5：列表分片，拖动看取到谁
-
-<div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<p>arr = [1, 2, 3, 4, 5]</p>
-<label>起点 <input id="slice-s" type="range" min="0" max="4" step="1" value="1" style="width:150px;"> <span id="slice-s-val">1</span></label>
-<label>终点 <input id="slice-e" type="range" min="1" max="5" step="1" value="4" style="width:150px;"> <span id="slice-e-val">4</span></label>
-<p id="slice-out">arr[1:4] = [2, 3, 4]，取下标 1、2、3，不取 4。</p>
-</div>
-<script>
-(function(){
-  var arr=[1,2,3,4,5];
-  function render(){
-    var s=+document.getElementById('slice-s').value, e=+document.getElementById('slice-e').value;
-    document.getElementById('slice-s-val').textContent=s;
-    document.getElementById('slice-e-val').textContent=e;
-    if(e<=s){ document.getElementById('slice-out').textContent='arr['+s+':'+e+'] = []，终点必须大于起点。'; return; }
-    document.getElementById('slice-out').textContent='arr['+s+':'+e+'] = ['+arr.slice(s,e).join(', ')+']，取下标 '+s+' 到 '+(e-1)+'，不取 '+e+'。';
-  }
-  document.getElementById('slice-s').addEventListener('input', render);
-  document.getElementById('slice-e').addEventListener('input', render);
-  render();
-})();
-</script>
+</details>
 
 ## 0.3 PyTorch 基础
 
 PyTorch 是基于 Python 的深度学习框架 / 代码库，用来搭建和训练神经网络，自动完成张量运算与梯度求导。
+
+### 先看形状怎么走
+
+| 步骤 | 形状 | 发生了什么 |
+| --- | --- | --- |
+| 创建 x | (3,) | 一维张量，开启梯度追踪 |
+| 创建 y | (3, 3) | 二维张量 |
+| y 搬到设备 | (3, 3) | `.to(device)`，CPU 或 GPU |
+| 矩阵乘法 x @ w | (3,) | 向量乘矩阵，还是 (3,) |
+| 网络输入 → 输出 | (3, 10) → (3, 2) | nn.Linear(10, 2)，每行独立算 |
+
+### 关键点，一句话一个
+
+- `torch.tensor` 是多维数组，`shape` 告诉你每一维多大，`requires_grad=True` 才追踪梯度。
+- `.to(device)` 把张量搬到 GPU 或 CPU，模型和数据必须在同一个设备上，否则报错。
+- `x @ w` 就是矩阵乘法，`@` 是 Python 的矩阵乘法运算符。
+- 所有网络都继承 `nn.Module`，`__init__` 里建层，`forward` 里写流程，调用 `net(x)` 时自动走 `forward`。
+- `nn.Linear(10, 2)`：输入 10 维，输出 2 维，内部就是 `y = x @ W.T`，W 的形状是 (2, 10)。
+
+<details>
+<summary>展开看完整代码：创建张量、矩阵乘法、定义一个网络</summary>
 
 ```python
 import torch
@@ -284,13 +331,7 @@ print(f"网络输入形状：{input_x.shape}")   # torch.Size([3, 10])
 print(f"网络输出形状：{output.shape}")   # torch.Size([3, 2])
 ```
 
-### 关键点，一句话一个
-
-- `torch.tensor` 是多维数组，`shape` 告诉你每一维多大，`requires_grad=True` 才追踪梯度。
-- `.to(device)` 把张量搬到 GPU 或 CPU，模型和数据必须在同一个设备上，否则报错。
-- `x @ w` 就是矩阵乘法，`@` 是 Python 的矩阵乘法运算符。
-- 所有网络都继承 `nn.Module`，`__init__` 里建层，`forward` 里写流程，调用 `net(x)` 时自动走 `forward`。
-- `nn.Linear(10, 2)`：输入 10 维，输出 2 维，内部就是 `y = x @ W.T`，W 的形状是 (2, 10)。
+</details>
 
 ## 1.2 Tensor 基本运算
 
@@ -362,35 +403,7 @@ print(f"网络输出形状：{output.shape}")   # torch.Size([3, 2])
 
 ### 场景 1：矩阵乘法，含 batch 广播
 
-```python
-import torch
-from einops import einsum
-
-# 1.1 普通二维矩阵乘法 (2, 2) @ (2, 2)
-a = torch.tensor([[1, 2],
-                  [3, 4]])
-b = torch.tensor([[1, 0],
-                  [2, 1]])
-out_mat = a @ b  # [[5, 2], [11, 4]]，形状 (2, 2)
-
-# 1.2 带 batch 的矩阵乘法广播 (batch=2, 2, 2) @ (2, 2)
-batch_a = torch.tensor([
-    [[1, 2],
-     [3, 4]],
-    [[5, 6],
-     [7, 8]]
-])  # (2, 2, 2)
-w = torch.tensor([[1, 1],
-                  [0, 1]])  # (2, 2)
-# 矩阵乘法会被自动广播到前面的所有维度上，
-# batch 中每一个 (2, 2) 矩阵独立和 w 做矩阵乘法
-out_batch = batch_a @ w
-# batch 0: [[1, 3], [3, 7]]；batch 1: [[5, 11], [7, 15]]，形状 (2, 2, 2)
-
-# einsum 优雅写法：输入输出维度映射清清楚楚，
-# 自动处理任意前置 batch 维度的广播
-out_ein = einsum(batch_a, w, "b n k, k m -> b n m")
-```
+先看演示：选 batch，再点结果格子，看每个 batch 怎么独立算。
 
 #### 演示 7：带 batch 的矩阵乘法，选 batch 再点结果格子
 
@@ -424,16 +437,44 @@ out_ein = einsum(batch_a, w, "b n k, k m -> b n m")
 })();
 </script>
 
-### 场景 2：逐点乘法，含广播
+<details>
+<summary>展开看完整代码：带 batch 的矩阵乘法与 einsum 写法</summary>
 
 ```python
-m = torch.tensor([[1, 2],
-                  [3, 4]])  # (2, 2)
-v = torch.tensor([[2, 3]])   # (1, 2)，触发广播机制
-out_elem = m * v
-# (1, 2) 的 v 会被复制扩展为 (2, 2)，再对应位置元素相乘
-# 结果 [[2, 6], [6, 12]]，形状 (2, 2)
+import torch
+from einops import einsum
+
+# 1.1 普通二维矩阵乘法 (2, 2) @ (2, 2)
+a = torch.tensor([[1, 2],
+                  [3, 4]])
+b = torch.tensor([[1, 0],
+                  [2, 1]])
+out_mat = a @ b  # [[5, 2], [11, 4]]，形状 (2, 2)
+
+# 1.2 带 batch 的矩阵乘法广播 (batch=2, 2, 2) @ (2, 2)
+batch_a = torch.tensor([
+    [[1, 2],
+     [3, 4]],
+    [[5, 6],
+     [7, 8]]
+])  # (2, 2, 2)
+w = torch.tensor([[1, 1],
+                  [0, 1]])  # (2, 2)
+# 矩阵乘法会被自动广播到前面的所有维度上，
+# batch 中每一个 (2, 2) 矩阵独立和 w 做矩阵乘法
+out_batch = batch_a @ w
+# batch 0: [[1, 3], [3, 7]]；batch 1: [[5, 11], [7, 15]]，形状 (2, 2, 2)
+
+# einsum 优雅写法：输入输出维度映射清清楚楚，
+# 自动处理任意前置 batch 维度的广播
+out_ein = einsum(batch_a, w, "b n k, k m -> b n m")
 ```
+
+</details>
+
+### 场景 2：逐点乘法，含广播
+
+先看演示：点一下，看 (1, 2) 怎么变成 (2, 2)。
 
 #### 演示 8：广播，点一下看 (1, 2) 怎么变成 (2, 2)
 
@@ -457,7 +498,52 @@ out_elem = m * v
 
 广播规则，一句话：缺的那一维会被复制，直到形状对齐。只在维度是 1 或者缺失时才能广播，否则报错。
 
+<details>
+<summary>展开看完整代码：逐点乘法与广播</summary>
+
+```python
+m = torch.tensor([[1, 2],
+                  [3, 4]])  # (2, 2)
+v = torch.tensor([[2, 3]])   # (1, 2)，触发广播机制
+out_elem = m * v
+# (1, 2) 的 v 会被复制扩展为 (2, 2)，再对应位置元素相乘
+# 结果 [[2, 6], [6, 12]]，形状 (2, 2)
+```
+
+</details>
+
 ### 场景 3：归约求和，沿最后一维
+
+先看演示：点一行，看它怎么变成一个数。
+
+#### 演示 9：归约求和，点一行算一行
+
+t = [[1, 2], [3, 4], [5, 6]]，沿最后一维求和。点一行，看它变成一个数。
+
+<div style="border:1px solid #888;padding:12px;border-radius:8px;">
+<button class="sum-row" data-row="0" style="padding:8px 12px;margin:2px;cursor:pointer;">[1, 2]</button>
+<button class="sum-row" data-row="1" style="padding:8px 12px;margin:2px;cursor:pointer;">[3, 4]</button>
+<button class="sum-row" data-row="2" style="padding:8px 12px;margin:2px;cursor:pointer;">[5, 6]</button>
+<p id="sum-out">还没点。求和后最后一维消失了。</p>
+</div>
+<script>
+(function(){
+  var rows=[[1,2],[3,4],[5,6]];
+  var done=[false,false,false];
+  document.querySelectorAll('.sum-row').forEach(function(b){
+    b.addEventListener('click', function(){
+      var i=+b.getAttribute('data-row');
+      if(done[i]) return;
+      done[i]=true; b.style.opacity=0.5;
+      var parts=done.map(function(d,k){return d?('第'+(k+1)+'行：'+rows[k][0]+'+'+rows[k][1]+'='+(rows[k][0]+rows[k][1])):null;}).filter(Boolean);
+      document.getElementById('sum-out').textContent = parts.join('；')+'。'+(done.every(Boolean)?'三行都算完：[3, 7, 11]，形状从 (3, 2) 变成 (3,)，最后一维被消掉了。':'求和后那一维消失，(3, 2) 变成 (3,)。');
+    });
+  });
+})();
+</script>
+
+<details>
+<summary>展开看完整代码：沿最后一维归约求和</summary>
 
 ```python
 t = torch.tensor([[1, 2],
@@ -468,9 +554,36 @@ sum_last = t.sum(dim=-1)
 # 结果 [3, 7, 11]，形状 (3,)
 ```
 
+</details>
+
 `dim=-1` 就是最后一维。求和后那一维消失了，(3, 2) 变成 (3,)。这个操作在注意力里到处都是：分数加权求和、归一化，都是沿某一维消掉它。
 
 ### 场景 4：维度拆分与重排 rearrange
+
+先看演示：点一下，看 8 维怎么拆成 2 个头。
+
+#### 演示 10：rearrange，8 维怎么拆成 2 个头 × 4 维
+
+<div style="border:1px solid #888;padding:12px;border-radius:8px;">
+<p>一个 token 的 8 维向量：[1, 2, 3, 4, 5, 6, 7, 8]</p>
+<button id="rg-split" style="padding:6px 12px;cursor:pointer;">拆成 2 个头</button>
+<p id="rg-out">还没拆。d_model=8，h=2，每头 d=4。</p>
+</div>
+<script>
+(function(){
+  var split=false;
+  document.getElementById('rg-split').addEventListener('click', function(){
+    split=!split;
+    document.getElementById('rg-out').innerHTML = split
+      ? '头 0：[1, 2, 3, 4]（蓝色）&nbsp;&nbsp;头 1：[5, 6, 7, 8]（红色）。rearrange 写成 "b s (h d) -&gt; b h s d"，就是把 8 拆成 2×4，再把 head 维提到 seq 前面。'
+      : '还没拆。d_model=8，h=2，每头 d=4。';
+    this.textContent = split ? '合回去' : '拆成 2 个头';
+  });
+})();
+</script>
+
+<details>
+<summary>展开看完整代码：view + transpose 与 rearrange 对照</summary>
 
 ```python
 from einops import rearrange
@@ -490,25 +603,7 @@ x_rearr = rearrange(x, "b s (h d) -> b h s d", h=2, d=4)
 # 形状 (1, 2, 2, 4)，和上面结果一样，但一眼就能看懂
 ```
 
-#### 演示 9：rearrange，8 维怎么拆成 2 个头 × 4 维
-
-<div style="border:1px solid #888;padding:12px;border-radius:8px;">
-<p>一个 token 的 8 维向量：[1, 2, 3, 4, 5, 6, 7, 8]</p>
-<button id="rg-split" style="padding:6px 12px;cursor:pointer;">拆成 2 个头</button>
-<p id="rg-out">还没拆。d_model=8，h=2，每头 d=4。</p>
-</div>
-<script>
-(function(){
-  var split=false;
-  document.getElementById('rg-split').addEventListener('click', function(){
-    split=!split;
-    document.getElementById('rg-out').innerHTML = split
-      ? '头 0：[1, 2, 3, 4]（蓝色）&nbsp;&nbsp;头 1：[5, 6, 7, 8]（红色）。rearrange 写成 "b s (h d) -&gt; b h s d"，就是把 8 拆成 2×4，再把 head 维提到 seq 前面。'
-      : '还没拆。d_model=8，h=2，每头 d=4。';
-    this.textContent = split ? '合回去' : '拆成 2 个头';
-  });
-})();
-</script>
+</details>
 
 ### 1.2.1 数学记号与代码实现的差异：行向量 vs 列向量
 
