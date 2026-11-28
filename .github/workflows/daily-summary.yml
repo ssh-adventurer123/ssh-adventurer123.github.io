@@ -8,6 +8,16 @@ on:
     - cron: '23 23 * * *'
   workflow_dispatch:
 
+# Only one run at a time. The 07:40 check triggers a manual run when the
+# scheduled run is missing, and two check jobs once fired together: both
+# runs generated the same post and raced on `git push`, so the second one
+# failed with "failed to push some refs". With this group, a duplicate
+# trigger waits for the running one to finish instead of racing it; the
+# waiting run then finds no diff and exits cleanly.
+concurrency:
+  group: daily-summary
+  cancel-in-progress: false
+
 jobs:
   daily-summary:
     runs-on: ubuntu-latest
@@ -68,6 +78,12 @@ jobs:
             exit 0
           fi
           git commit -m "daily ai news: $(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          # Rebase onto the latest main before pushing: if anything else
+          # landed meanwhile (another run, or the user editing the blog),
+          # this replays our post commit on top instead of failing with
+          # "failed to push some refs". If the remote already has the
+          # identical post, our commit becomes empty and is dropped.
+          git pull --rebase origin main
           git push origin main
           # A push made with GITHUB_TOKEN does not trigger other workflows,
           # so start the Hugo deploy explicitly.
