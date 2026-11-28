@@ -1542,6 +1542,197 @@ $\Phi(x)$ 是标准正态分布的累积分布函数，$x$ 越大，$\Phi(x)$ �
 
 一句话记：**ReLU 是硬截断，GELU 和 SiLU 是软截断，SwiGLU 是门控乘法。** 现代大模型用 SwiGLU，因为它多了一个门，能决定哪些信息放过去。
 
+## 4.4.6 FFN 的变体：MoE（混合专家）
+
+FFN 是每个 token 都算一遍，MoE（Mixture of Experts，混合专家）是：准备 N 个 FFN 专家，一个 token 只算其中挑出来的 k 个。
+
+一个 token 进来，先过一个路由器，路由器给每个专家打分，选分数最高的 k 个专家，只算这 k 个，加权求和出结果。没选中的专家，一个数都不算。
+
+|  | 普通 FFN | MoE |
+| --- | --- | --- |
+| 专家个数 | 1 个 | N 个（玩具模型 4 个） |
+| 一个 token 算几个 | 1 个 | k 个（玩具模型 2 个） |
+| 没选中的专家 | — | 不算，省计算 |
+
+### 公式，三个
+
+**1. 输出：加权求和**
+
+$y = \sum_{i=1}^{n} G(x)_i E_i(x)$
+
+$E_i(x)$ 是第 $i$ 个专家的输出，$G(x)_i$ 是路由器给它的权重。$G(x)_i = 0$ 的专家不用算。
+
+**2. 路由：先打分，只留前 k 个**
+
+$G(x) = \text{Softmax}(\text{KeepTopK}(x \cdot W_g, k))$
+
+$x \cdot W_g$ 是路由器打分：一个 Linear，输入 4 维，输出 n 个分数（n 是专家数）。KeepTopK 只留最高的 k 个，其余变 $-\infty$，Softmax 之后权重就是 0。这和注意力里的遮罩是一个思路：不要的就盖掉。
+
+**3. 专家容量：一个专家最多接几个 token**
+
+$\text{Expert Capacity} = (\text{每批 token 数} \div \text{专家数}) \times \text{容量因子}$
+
+容量因子一般是 1.0 到 1.25。超出的 token 叫溢出 token，跳过计算，直接走残差去下一层。
+
+### 动画 1：一个 token 怎么被路由
+
+拿 4.4 那个 token $x = [1, 2, 0.5, -1]$，4 个专家，选 Top-2。点“播放”看它一步步走。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="moe-anim" style="overflow-x:auto;"></div>
+<p id="moe-explain">点“播放”开始。</p>
+<button id="moe-play" style="padding:6px 12px;margin:2px;cursor:pointer;">▶ 播放</button>
+<button id="moe-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一步 →</button>
+<button id="moe-all" style="padding:6px 12px;margin:2px;cursor:pointer;">全部算完</button>
+<button id="moe-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重置</button>
+</div>
+<script>
+(function(){
+  var scores=[0.3,0.7,-0.15,0.95];
+  var names=['专家 1','专家 2','专家 3','专家 4'];
+  var E2=[0.5,1.0,0.5,1.0], E4=[1.0,0.5,1.5,0.0];
+  var stages=[
+    {t:'第 0 步：输入 token x = [1, 2, 0.5, -1]，和 4.4 里那个 token 一样。', html:'<p style="font-size:18px;">x = [1, 2, 0.5, -1]</p>'},
+    {t:'第 1 步：路由器打分。x 乘 W_g，4 个专家各一个分数：专家 1 是 0.3，专家 2 是 0.7，专家 3 是 -0.15，专家 4 是 0.95。', html:'<table style="border-collapse:collapse;text-align:center;"><tr>'+names.map(function(n,i){return '<td style="border:1px solid #888;padding:8px 12px;">'+n+'</td>';}).join('')+'</tr><tr>'+scores.map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;">'+v+'</td>';}).join('')+'</tr></table>'},
+    {t:'第 2 步：只留 Top-2。专家 4（0.95）和专家 2（0.7）留下，专家 1 和专家 3 变 -∞，Softmax 之后权重是 0。', html:'<table style="border-collapse:collapse;text-align:center;"><tr>'+names.map(function(n,i){return '<td style="border:1px solid #888;padding:8px 12px;background:'+((i===1||i===3)?'#2563eb':'#7f1d1d')+';color:#fff;">'+n+'</td>';}).join('')+'</tr><tr><td style="border:1px solid #888;padding:8px 12px;">-∞</td><td style="border:1px solid #888;padding:8px 12px;">0.7</td><td style="border:1px solid #888;padding:8px 12px;">-∞</td><td style="border:1px solid #888;padding:8px 12px;">0.95</td></tr></table>'},
+    {t:'第 3 步：Softmax 变成权重。专家 4 权重 0.56，专家 2 权重 0.44，两个加起来是 1。', html:'<table style="border-collapse:collapse;text-align:center;"><tr><td style="border:1px solid #888;padding:8px 12px;">专家 2</td><td style="border:1px solid #888;padding:8px 12px;background:#2563eb;color:#fff;">0.44</td><td style="border:1px solid #888;padding:8px 12px;">专家 4</td><td style="border:1px solid #888;padding:8px 12px;background:#2563eb;color:#fff;">0.56</td></tr></table>'},
+    {t:'第 4 步：只算这两个专家。每个专家都是一个 FFN，和 4.4 里算的一模一样，只是权重不同。专家 2 输出 [0.5, 1.0, 0.5, 1.0]，专家 4 输出 [1.0, 0.5, 1.5, 0.0]。', html:'<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;">专家 2 输出</td>'+E2.map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;">'+v+'</td>';}).join('')+'</tr><tr><td style="padding:6px;">专家 4 输出</td>'+E4.map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;">'+v+'</td>';}).join('')+'</tr></table>'},
+    {t:'第 5 步：加权求和。y = 0.44 × 专家 2 输出 + 0.56 × 专家 4 输出 = [0.78, 0.72, 1.06, 0.44]。专家 1 和专家 3 一个数都没算。', html:'<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;">y</td>'+[0.78,0.72,1.06,0.44].map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;background:#2563eb;color:#fff;">'+v+'</td>';}).join('')+'</tr></table><p>0.44 × [0.5, 1.0, 0.5, 1.0] + 0.56 × [1.0, 0.5, 1.5, 0.0] = [0.78, 0.72, 1.06, 0.44]</p>'}
+  ];
+  var idx=0, timer=null, playing=false;
+  function render(){
+    document.getElementById('moe-anim').innerHTML=stages[idx].html;
+    document.getElementById('moe-explain').textContent=stages[idx].t;
+  }
+  function stop(){ if(timer){ clearInterval(timer); timer=null; } playing=false; document.getElementById('moe-play').textContent='▶ 播放'; }
+  function step(){ if(idx>=stages.length-1){ stop(); return; } idx++; render(); if(idx>=stages.length-1) stop(); }
+  document.getElementById('moe-play').addEventListener('click', function(){
+    if(playing){ stop(); return; }
+    if(idx>=stages.length-1){ idx=0; render(); }
+    playing=true; this.textContent='⏸ 暂停';
+    timer=setInterval(step, 1200);
+  });
+  document.getElementById('moe-next').addEventListener('click', function(){ stop(); step(); });
+  document.getElementById('moe-all').addEventListener('click', function(){ stop(); idx=stages.length-1; render(); });
+  document.getElementById('moe-reset').addEventListener('click', function(){ stop(); idx=0; render(); });
+  render();
+})();
+</script>
+
+### 动画 2：专家容量，溢出 token 去哪了
+
+6 个 token，3 个专家。路由器分完，专家 1 分到 3 个 token，专家 2 分到 2 个，专家 3 分到 1 个。点下面两个容量因子，看溢出是怎么发生的。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="cap-anim" style="overflow-x:auto;"></div>
+<p id="cap-explain">点下面两个容量因子。</p>
+<button class="cap-btn" data-k="1.0" style="padding:6px 12px;margin:2px;cursor:pointer;">容量因子 1.0</button>
+<button class="cap-btn" data-k="1.5" style="padding:6px 12px;margin:2px;cursor:pointer;">容量因子 1.5</button>
+</div>
+<script>
+(function(){
+  var data={
+    '1.0':{cap:2, t:'容量因子 1.0：每个专家容量 = 6 ÷ 3 × 1.0 = 2。专家 1 分到 3 个 token，第 3 个超出了容量，叫溢出 token，跳过计算，直接走残差去下一层。专家 2、3 没超。'},
+    '1.5':{cap:3, t:'容量因子 1.5：每个专家容量 = 6 ÷ 3 × 1.5 = 3。专家 1 的 3 个 token 都能算，没有溢出。代价是每个专家多留了 1 个位置的显存，永远用不上就浪费了。'}
+  };
+  var assign={0:[1,2,3], 1:[4,5], 2:[6]};
+  function render(k){
+    var cap=data[k].cap;
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;"></td><td style="padding:6px;">分到的 token</td><td style="padding:6px;">容量</td><td style="padding:6px;">溢出</td></tr>';
+    for(var e=0;e<3;e++){
+      var toks=assign[e];
+      var over=toks.length>cap ? toks.slice(cap) : [];
+      html+='<tr><td style="padding:6px;">专家 '+(e+1)+'</td><td style="border:1px solid #888;padding:8px 12px;">'+toks.map(function(t,i){return '<span style="background:'+(i<cap?'#2563eb':'#7f1d1d')+';color:#fff;padding:2px 6px;margin:1px;border-radius:4px;">T'+t+'</span>';}).join('')+'</td><td style="border:1px solid #888;padding:8px 12px;">'+cap+'</td><td style="border:1px solid #888;padding:8px 12px;">'+(over.length?('T'+over.join(', T')+' 走残差'):'无')+'</td></tr>';
+    }
+    html+='</table>';
+    document.getElementById('cap-anim').innerHTML=html;
+    document.getElementById('cap-explain').textContent=data[k].t;
+  }
+  document.querySelectorAll('.cap-btn').forEach(function(b){
+    b.addEventListener('click', function(){ render(b.getAttribute('data-k')); });
+  });
+  render('1.0');
+})();
+</script>
+
+一句话记：**容量因子越大，溢出越少，浪费越多。** Switch 论文里容量因子 1.0 到 1.25 效果最好。
+
+### 优势：参数大，计算小
+
+MoE 的好处是总参数和激活参数分开算：
+
+|  | 总参数 | 一个 token 实际算的参数 |
+| --- | --- | --- |
+| Mixtral 8×7B（8 个专家，选 2 个） | 47B | 约 13B |
+| 同等计算量的普通模型 | 13B | 13B |
+
+8 个专家，选 2 个，一个 token 只算 2/8 = 25% 的专家参数，加上注意力这些公共部分，实际算的约 13B。计算量和 13B 的模型差不多，效果接近 47B 的模型。这就是 MoE 能把模型做大的原因：参数可以堆，计算不用跟着翻倍。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div style="display:flex;align-items:flex-end;height:80px;gap:16px;">
+<div style="flex:1;text-align:center;"><div style="height:80px;background:#2563eb;"></div><div>Mixtral 总参数 47B</div></div>
+<div style="flex:1;text-align:center;"><div style="height:22px;background:#94a3b8;"></div><div>Mixtral 激活参数 13B</div></div>
+<div style="flex:1;text-align:center;"><div style="height:22px;background:#94a3b8;"></div><div>普通 13B 模型 13B</div></div>
+</div>
+<p>蓝色是总参数，灰色是一个 token 实际算的参数。MoE 的总参数是普通模型的 3.6 倍，实际计算量一样。</p>
+</div>
+
+玩具模型里看不出这个优势：4 个专家选 2 个，总参数 4 × 24 + 路由器 16 = 112 个，一个 token 算 2 × 24 + 16 = 64 个，比普通 FFN 的 24 个还多。优势要专家多、选得少才显出来：8 个专家选 2 个，只算 25%；128 个专家选 1 个，只算不到 1%。
+
+两点记住（推理时）：
+
+- **路由器是确定的**：推理时路由器不加噪音，同一个 token 每次都分到同一个专家，结果可复现。加噪音只在训练时用，为了让专家负载均衡。
+- **负载均衡是训练的事**：训练时要加辅助损失，不让所有 token 都挤到一两个专家那里。推理时只用训练好的路由器，不用管均衡。
+
+### 自测：MoE 过关了吗
+
+**第 1 题**：MoE 的输出公式是什么？$G(x)_i = 0$ 的专家算不算？
+
+<details>
+<summary>点开看解析和答案</summary>
+
+$y = \sum G(x)_i E_i(x)$。$G(x)_i = 0$ 的专家不用算，省计算。
+
+</details>
+
+**第 2 题**：动画 1 里，token $x = [1, 2, 0.5, -1]$ 被分到哪两个专家？权重各是多少？
+
+<details>
+<summary>点开看解析和答案</summary>
+
+路由器打分是 [0.3, 0.7, -0.15, 0.95]，Top-2 是专家 4（0.95）和专家 2（0.7）。Softmax 之后专家 4 权重 0.56，专家 2 权重 0.44。最终输出 y = [0.78, 0.72, 1.06, 0.44]。
+
+</details>
+
+**第 3 题**：6 个 token、3 个专家、容量因子 1.0，每个专家容量是多少？专家 1 分到 3 个 token 会怎样？
+
+<details>
+<summary>点开看解析和答案</summary>
+
+容量 = 6 ÷ 3 × 1.0 = 2。专家 1 分到 3 个，第 3 个是溢出 token，跳过计算，直接走残差去下一层。
+
+</details>
+
+**第 4 题**：Mixtral 8×7B 总参数 47B，一个 token 实际算多少？为什么？
+
+<details>
+<summary>点开看解析和答案</summary>
+
+约 13B。8 个专家只选 2 个，一个 token 只算 2/8 = 25% 的专家参数，加上注意力这些公共部分，一共约 13B。计算量和 13B 模型差不多，效果接近 47B 模型。
+
+</details>
+
+**第 5 题**：推理时路由器加不加噪音？负载均衡是训练还是推理的事？
+
+<details>
+<summary>点开看解析和答案</summary>
+
+推理时不加噪音，路由器是确定的，同一个 token 每次都分到同一个专家。负载均衡是训练的事，训练时加辅助损失让 token 分散到各个专家，推理时只用训练好的路由器。
+
+</details>
+
+全答得出来，MoE 就过了。
+
 ## 4.5 参数量总账：玩具模型一共有多少参数
 
 把前面所有模块的参数加起来，看看一个模型到底“大”在哪。点“下一步”，一行一行加。
