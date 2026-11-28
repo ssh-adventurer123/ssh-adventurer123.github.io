@@ -2,6 +2,7 @@
 # 改名字只改下面 title / params.author 这一处就行
 baseURL: "https://ssh-adventurer123.github.io/"
 languageCode: zh-cn
+timeZone: Asia/Shanghai
 defaultContentLanguage: zh-cn
 title: "Wang 的 AI 博客"
 theme: PaperMod
