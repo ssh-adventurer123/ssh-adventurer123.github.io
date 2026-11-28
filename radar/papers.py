@@ -186,7 +186,15 @@ def groq_rank(candidates, api_key: str):
 
 
 def rank_with_groq(candidates, api_key: str):
-    """Rank with one retry; log the provider's error body for diagnosis."""
+    """Rank with retries; log the provider's error body for diagnosis.
+
+    Groq's free tier also caps tokens per MINUTE (8,000 TPM) on top of the
+    daily 200k budget, and a ranking request is ~6k tokens. The news
+    enrichment just before this step uses most of that minute's budget, so
+    wait 60s first to let the per-minute window clear, and wait 60s between
+    retries (the provider suggests ~35s; 60s is a safe margin).
+    """
+    time.sleep(60)
     last_exc = None
     for attempt in (1, 2):
         try:
@@ -202,7 +210,7 @@ def rank_with_groq(candidates, api_key: str):
             print(f"WARN Groq ranking attempt {attempt} failed: {exc}")
             last_exc = exc
         if attempt == 1:
-            time.sleep(30)
+            time.sleep(60)
     raise last_exc
 
 
