@@ -17,6 +17,58 @@ description: "大模型推理第二步：Transformer 整体长什么样，decode
 | 层数 | 2（两个 Transformer 块） |
 | 词表 | 8 个词（演示用，真实模型是几万个） |
 
+## 为什么需要 Transformer：先看老办法卡在哪
+
+Transformer 出现之前，处理一句话主要靠两招，都有硬伤：
+
+|  | RNN（循环神经网络） | CNN（卷积） | Transformer |
+| --- | --- | --- | --- |
+| 怎么读一句话 | 一个词一个词顺序读，前一个词的输出喂给下一个词 | 用一个固定大小的窗口滑过去，每次只看窗口里的几个词 | 所有词同时读，每个词直接看所有词 |
+| 能不能并行 | 不能，必须等前一个词算完 | 能，窗口之间互不干扰 | 能，全部一起算 |
+| 第 1 个词的信息到第 3 个词要几步 | 2 步：词 1 → 词 2 → 词 3 | 窗口够大 1 步，不够大要叠好几层 | 1 步：直接看 |
+| 长句子会怎样 | 越往后越忘，梯度传着传着就没了 | 窗口外的词要叠很多层才看得到 | 远近一样，代价是计算量随长度平方涨 |
+
+### 动画：信息从“猫”到“鱼”要走几步
+
+点“下一步”，看三条路各走几步。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="why-anim" style="overflow-x:auto;"></div>
+<p id="why-explain">点“下一步”开始。</p>
+<button id="why-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一步 →</button>
+<button id="why-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重来</button>
+</div>
+<script>
+(function(){
+  var stages=[
+    {t:'RNN：第 0 步。信息在“猫”手里，要传给“鱼”，必须一个词一个词往后传。', r:0, tr:1},
+    {t:'RNN：第 1 步。猫 → 吃，信息传到了“吃”，还没到“鱼”。', r:1, tr:1},
+    {t:'RNN：第 2 步。吃 → 鱼，信息终于到了。一句话 3 个词走了 2 步，100 个词就要走 99 步，越往后忘得越多。', r:2, tr:1},
+    {t:'Transformer：第 0 步。信息在“猫”手里。', r:0, tr:0},
+    {t:'Transformer：第 1 步。猫直接看鱼，一步就到。不管句子多长，都是 1 步，这就是 O(1) 路径。', r:2, tr:0}
+  ];
+  var idx=-1;
+  function render(){
+    var s = idx>=0 ? stages[idx] : null;
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr>';
+    ['猫','吃','鱼'].forEach(function(w,i){
+      var on = s && ((s.tr===1 && i<=s.r) || (s.tr===0 && (i===0 || (s.r===2 && i===2))));
+      html+='<td style="border:1px solid #888;padding:10px 16px;background:'+(on?'#2563eb':'#1f2937')+';color:#fff;">'+w+'</td>';
+      if(i<2) html+='<td style="padding:0 6px;">→</td>';
+    });
+    html+='</tr></table>';
+    html+='<p>'+(s && s.tr===1 ? 'RNN：顺序传，一个词一个词走' : s ? 'Transformer：直接看，一步就到' : '上面是三个词，下面选一条路走')+'</p>';
+    document.getElementById('why-anim').innerHTML=html;
+    document.getElementById('why-explain').textContent = s ? s.t : '点“下一步”开始。';
+  }
+  document.getElementById('why-next').addEventListener('click', function(){ if(idx<stages.length-1){ idx++; render(); } });
+  document.getElementById('why-reset').addEventListener('click', function(){ idx=-1; render(); });
+  render();
+})();
+</script>
+
+一句话记：**RNN 是排队传话，越长越忘；Transformer 是所有人直接对话，远近一样。** 代价是计算量随长度平方涨，3 个词算 9 次，100 个词算 10000 次，所以后面第七步要讲 KV Cache 这些省计算的办法。
+
 ## 先看全图：前向传播一步一步走
 
 点“下一步”，看“猫 吃 鱼”一路变成下一个词。形状每一步都在图里，不写方括号。
@@ -318,6 +370,55 @@ description: "大模型推理第二步：Transformer 整体长什么样，decode
 </script>
 
 区别一句话：**Encoder-Decoder 是两个塔加交叉注意力，Decoder-only 是一个塔、没有交叉注意力。** 语言模型只需要接着写，不需要翻译，所以一个塔就够了，还能直接拿海量文本预训练，不需要成对的输入输出。
+
+## 自注意力、交叉注意力、掩码自注意力：三张图分清
+
+注意力有三种，区别只在 **Q、K、V 各从哪来**。点下面任意一张图。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div style="display:flex;gap:12px;">
+<div style="flex:1;border:1px solid #888;border-radius:8px;padding:10px;">
+<div style="text-align:center;font-weight:bold;">自注意力</div>
+<div class="att3-box" data-k="self" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#dbeafe;">Q、K、V 都来自同一句话</div>
+<div style="text-align:center;font-size:12px;">猫 看 猫、吃、鱼<br>吃 看 猫、吃、鱼<br>鱼 看 猫、吃、鱼</div>
+</div>
+<div style="flex:1;border:1px solid #888;border-radius:8px;padding:10px;">
+<div style="text-align:center;font-weight:bold;">掩码自注意力</div>
+<div class="att3-box" data-k="masked" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#fef3c7;">Q、K、V 都来自同一句话，但只能看前面</div>
+<div style="text-align:center;font-size:12px;">猫 只看 猫<br>吃 看 猫、吃<br>鱼 看 猫、吃、鱼</div>
+</div>
+<div style="flex:1;border:1px solid #888;border-radius:8px;padding:10px;">
+<div style="text-align:center;font-weight:bold;">交叉注意力</div>
+<div class="att3-box" data-k="cross" style="border:1px solid #888;border-radius:6px;padding:8px;margin:4px;text-align:center;cursor:pointer;background:#fee2e2;">Q 来自解码器，K、V 来自编码器</div>
+<div style="text-align:center;font-size:12px;">中文“猫” 看 英文整句<br>中文“吃” 看 英文整句</div>
+</div>
+</div>
+<p id="att3-explain">点上面任意一张图。</p>
+</div>
+<script>
+(function(){
+  var texts={
+    'self':'<strong>自注意力：</strong>Q、K、V 都来自同一句话。每个词看同一句话里的所有词，互相交换信息。编码器和解码器里都有它，Decoder-only 里用的就是它。',
+    'masked':'<strong>掩码自注意力：</strong>也是 Q、K、V 都来自同一句话，但加了因果掩码：生成第 i 个词时，只能看前面的词，不能看后面的。上面的掩码矩阵里，猫只能看猫，吃看猫和吃，鱼才能看全部三个。解码器里用它，编码器里不用。',
+    'cross':'<strong>交叉注意力：</strong>Q 来自解码器（正在生成的目标语言），K、V 来自编码器（已经读完的源语言）。解码器生成每个词时，用它去看编码器的结果，对照着翻译。只有 Encoder-Decoder 结构里有它，Decoder-only 里没有。'
+  };
+  document.querySelectorAll('.att3-box').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('.att3-box').forEach(function(x){x.style.outline='';});
+      b.style.outline='3px solid #2563eb';
+      document.getElementById('att3-explain').innerHTML=texts[b.getAttribute('data-k')];
+    });
+  });
+})();
+</script>
+
+|  | Q 从哪来 | K、V 从哪来 | 能看谁 | 在哪用 |
+| --- | --- | --- | --- | --- |
+| 自注意力 | 同一句话 | 同一句话 | 所有词 | 编码器、解码器、Decoder-only |
+| 掩码自注意力 | 同一句话 | 同一句话 | 只能看前面的词 | 解码器 |
+| 交叉注意力 | 解码器 | 编码器 | 编码器的整句 | 只有 Encoder-Decoder |
+
+一句话记：**Q 是“谁在问”，K、V 是“问谁要答案”。** Q 和 K、V 来自同一句话就是自注意力，来自两边就是交叉注意力；再加个掩码不让看未来，就是掩码自注意力。
 
 ## 形状总览：一张表看完
 

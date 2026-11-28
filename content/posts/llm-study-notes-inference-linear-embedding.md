@@ -240,6 +240,66 @@ class Embedding(torch.nn.Module):
 
 </details>
 
+### 嵌入缩放：查完表为什么要乘 √d_model
+
+嵌入表的权重标准差是 1，查出来的向量每个数平均在 1 附近。位置编码加进来之后，数值会变大，模型一开始就偏离。所以原始 Transformer 在查完表之后，把嵌入向量乘以 $\sqrt{d_{model}}$：
+
+$\text{Embedding 输出} = E[\text{token\_id}] \times \sqrt{d_{model}}$
+
+d_model=4 时，$\sqrt{4} = 2$，每个数都乘 2：
+
+|  | 1 | 2 | 3 | 4 |
+| --- | --- | --- | --- | --- |
+| 猫，查表 | 0.2 | -0.5 | 0.8 | 0.1 |
+| 猫，× 2 之后 | 0.4 | -1.0 | 1.6 | 0.2 |
+
+乘完之后，嵌入向量的大小和位置编码加起来的大小差不多，谁也不压过谁。现代模型用 RoPE，不在输入上加位置向量，所以有的实现不乘这个数，但原始论文里有，面试常问。
+
+### Dropout：训练时随机丢掉一些数
+
+Dropout 是训练时用的正则化：每个数以概率 $p$ 被丢掉（变成 0），剩下的数乘以 $\frac{1}{1-p}$，保证整体大小不变。
+
+拿 $p = 0.5$、一个 token 的向量 [0.4, -1.0, 1.6, 0.2] 算一遍：
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="drop-anim" style="overflow-x:auto;"></div>
+<p id="drop-explain">点“随机丢一次”试试。</p>
+<button id="drop-run" style="padding:6px 12px;margin:2px;cursor:pointer;">随机丢一次</button>
+<button id="drop-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重置</button>
+</div>
+<script>
+(function(){
+  var x=[0.4,-1.0,1.6,0.2], p=0.5;
+  function render(kept){
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:4px;">丢之前</td>';
+    x.forEach(function(v){ html+='<td style="border:1px solid #888;padding:8px 12px;">'+v+'</td>'; });
+    html+='</tr><tr><td style="padding:4px;">丢之后</td>';
+    if(!kept){ for(var i=0;i<4;i++) html+='<td style="border:1px solid #888;padding:8px 12px;">?</td>'; }
+    else {
+      kept.forEach(function(k,i){
+        var v = k ? Math.round(x[i]/(1-p)*100)/100 : 0;
+        html+='<td style="border:1px solid #888;padding:8px 12px;background:'+(k?'#2563eb':'#7f1d1d')+';color:#fff;">'+v+'</td>';
+      });
+    }
+    html+='</tr></table>';
+    document.getElementById('drop-anim').innerHTML=html;
+  }
+  render(null);
+  document.getElementById('drop-run').addEventListener('click', function(){
+    var kept=[Math.random()>p, Math.random()>p, Math.random()>p, Math.random()>p];
+    render(kept);
+    var n=kept.filter(function(k){return k;}).length;
+    document.getElementById('drop-explain').textContent='这次留下了 '+n+' 个数，丢掉的变成 0，留下的乘以 1/(1-0.5) = 2。每次训练丢的都不一样，模型就不能只依赖某一个数。';
+  });
+  document.getElementById('drop-reset').addEventListener('click', function(){ render(null); document.getElementById('drop-explain').textContent='点“随机丢一次”试试。'; });
+})();
+</script>
+
+两点记住：
+
+- **训练时开，推理时关**。推理要的是确定的输出，不能随机丢。
+- **为什么乘 $\frac{1}{1-p}$**：丢了一半，剩下的乘 2，整体期望大小不变，推理时关掉 Dropout，前后大小才对得上。
+
 ## Linear 和 Embedding：一个算，一个查
 
 |  | Linear | Embedding |

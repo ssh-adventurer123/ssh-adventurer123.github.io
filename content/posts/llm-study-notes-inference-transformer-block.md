@@ -426,7 +426,84 @@ def apply_rope(x, cos_table, sin_table):
 
 </details>
 
-### 和原始位置编码的区别
+### 和原始位置编码的区别：先把原版算一遍
+
+RoPE 之前，原始 Transformer 用的是**正弦位置编码**：不给 Q、K 转角度，而是在输入上直接加一个位置向量 P。
+
+公式，一个符号一个符号讲：
+
+$PE_{(pos, 2i)} = \sin\left(\frac{pos}{10000^{2i/d}}\right)$，$PE_{(pos, 2i+1)} = \cos\left(\frac{pos}{10000^{2i/d}}\right)$
+
+| 符号 | 意思 |
+| --- | --- |
+| $pos$ | token 下标：第几个词，0、1、2…… |
+| $i$ | 维度组号：把 d 个维度两两分组，第 0 组、第 1 组…… |
+| $d$ | d_model，这里是 4 |
+| $10000$ | 底数，论文定的，决定高频组和低频组的差距 |
+
+偶数位用 sin，奇数位用 cos。分母 $10000^{2i/d}$ 越大，变化越慢：
+
+- 第 0 组（i=0）：分母 $10000^0 = 1$，$\sin(pos)$、$\cos(pos)$，转得最快
+- 第 1 组（i=1）：分母 $10000^{2/4} = 100$，$\sin(pos/100)$、$\cos(pos/100)$，转得很慢
+
+### 动画：一格一格算出位置表
+
+d=4，位置 0、1、2，点“播放”看每一格是怎么算出来的。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="pe-anim" style="overflow-x:auto;"></div>
+<p id="pe-explain">点“播放”或“下一格”开始。</p>
+<button id="pe-play" style="padding:6px 12px;margin:2px;cursor:pointer;">▶ 播放</button>
+<button id="pe-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一格 →</button>
+<button id="pe-all" style="padding:6px 12px;margin:2px;cursor:pointer;">全部算完</button>
+<button id="pe-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重置</button>
+</div>
+<script>
+(function(){
+  // cells: [pos, dim, formula, value]
+  var cells=[
+    [0,0,'sin(0/1) = sin(0)','0'],[0,1,'cos(0/1) = cos(0)','1'],
+    [0,2,'sin(0/100) = sin(0)','0'],[0,3,'cos(0/100) = cos(0)','1'],
+    [1,0,'sin(1/1) = sin(1)','0.84'],[1,1,'cos(1/1) = cos(1)','0.54'],
+    [1,2,'sin(1/100) = sin(0.01)','0.01'],[1,3,'cos(1/100) = cos(0.01)','1.00'],
+    [2,0,'sin(2/1) = sin(2)','0.91'],[2,1,'cos(2/1) = cos(2)','-0.42'],
+    [2,2,'sin(2/100) = sin(0.02)','0.02'],[2,3,'cos(2/100) = cos(0.02)','1.00']
+  ];
+  var done=0, timer=null;
+  function render(){
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;"></td><td style="border:1px solid #888;padding:8px 12px;">第 1 维<br><span style="font-size:12px;">sin(pos)</span></td><td style="border:1px solid #888;padding:8px 12px;">第 2 维<br><span style="font-size:12px;">cos(pos)</span></td><td style="border:1px solid #888;padding:8px 12px;">第 3 维<br><span style="font-size:12px;">sin(pos/100)</span></td><td style="border:1px solid #888;padding:8px 12px;">第 4 维<br><span style="font-size:12px;">cos(pos/100)</span></td></tr>';
+    for(var p=0;p<3;p++){
+      html+='<tr><td style="padding:6px;">位置 '+p+'</td>';
+      for(var d=0;d<4;d++){
+        var k=p*4+d;
+        var c = k<done ? cells[k] : null;
+        html+='<td style="border:1px solid #888;padding:8px 12px;background:'+(c?(k===done-1?'#2563eb':'#1f2937'):'#fff')+';color:'+(c?'#fff':'#000')+';">'+(c?c[3]:'?')+'</td>';
+      }
+      html+='</tr>';
+    }
+    html+='</table>';
+    document.getElementById('pe-anim').innerHTML=html;
+    document.getElementById('pe-explain').textContent = done===0 ? '点“播放”或“下一格”开始。' : done>=cells.length ? '算完了：位置 0 是 [0, 1, 0, 1]，位置 1 是 [0.84, 0.54, 0.01, 1.00]，位置 2 是 [0.91, -0.42, 0.02, 1.00]。注意第 3、4 维变化很慢，位置 0、1、2 几乎一样。' : '第 '+done+' / 12 格：'+cells[done-1][2]+' = '+cells[done-1][3];
+  }
+  function step(){ if(done<cells.length){ done++; render(); } else { clearInterval(timer); timer=null; } }
+  document.getElementById('pe-next').addEventListener('click', function(){ if(timer){ clearInterval(timer); timer=null; } step(); });
+  document.getElementById('pe-all').addEventListener('click', function(){ if(timer){ clearInterval(timer); timer=null; } done=cells.length; render(); });
+  document.getElementById('pe-reset').addEventListener('click', function(){ if(timer){ clearInterval(timer); timer=null; } done=0; render(); });
+  document.getElementById('pe-play').addEventListener('click', function(){
+    if(timer){ clearInterval(timer); timer=null; return; }
+    if(done>=cells.length){ done=0; }
+    timer=setInterval(step, 700);
+  });
+  render();
+})();
+</script>
+
+看两点：
+
+- **第 1、2 维变化快**：位置 0、1、2 的 sin/cos 各不相同，能分清相邻的词。
+- **第 3、4 维变化慢**：位置 0、1、2 几乎一样，$pos/100$ 很小，sin 接近 0、cos 接近 1。长句子里靠它分清远近。
+
+算完位置向量 P，就加到嵌入向量上：$x = E + P$，再进 Transformer 块。RoPE 不加在输入上，而是算 Q、K 时旋转，好处在上面对比表里。
 
 |  | 原始位置编码 | RoPE |
 | --- | --- | --- |
@@ -1021,6 +1098,52 @@ Q 是查询，K 是键，V 是值。都是 X 乘一个权重矩阵得到的 Line
 
 全答得出来，4.3 就过了。
 
+## 4.3.5 多头注意力再往下：MHA / MQA / GQA
+
+多头注意力里，Q 有多少个头，K、V 就有多少个头吗？不一定。**Q 的头数决定“问”的细度，K、V 的头数决定要存多少东西。** 三种分法：
+
+|  | MHA（多头注意力） | GQA（分组查询注意力） | MQA（多查询注意力） |
+| --- | --- | --- | --- |
+| Q 头数 | 2 | 2 | 2 |
+| K、V 头数 | 2 | 1（2 个 Q 头共用 1 个 K、V 头） | 1（所有 Q 头共用 1 个 K、V 头） |
+| 一个 token 一层要存的 K、V 数 | 2 头 × 2 维 × 2（K+V）= 8 个数 | 1 头 × 2 维 × 2 = 4 个数 | 1 头 × 2 维 × 2 = 4 个数 |
+| 谁用 | 原始 Transformer、BERT | LLaMA 2、LLaMA 3 | PaLM、Falcon |
+
+### 动画：点一种，看 K、V 头怎么分
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="gqa-anim" style="overflow-x:auto;"></div>
+<p id="gqa-explain">点下面三个按钮。</p>
+<button class="gqa-btn" data-k="mha" style="padding:6px 12px;margin:2px;cursor:pointer;">MHA</button>
+<button class="gqa-btn" data-k="gqa" style="padding:6px 12px;margin:2px;cursor:pointer;">GQA</button>
+<button class="gqa-btn" data-k="mqa" style="padding:6px 12px;margin:2px;cursor:pointer;">MQA</button>
+</div>
+<script>
+(function(){
+  var data={
+    mha:{t:'MHA：Q 头 1 看 K、V 头 1，Q 头 2 看 K、V 头 2，各看各的。效果最好，但 K、V 存得最多：一个 token 一层 8 个数。', kv:['K 头 1','K 头 2'], groups:[['Q 头 1'],['Q 头 2']]},
+    gqa:{t:'GQA：Q 头 1 和 Q 头 2 共用同一个 K、V 头。效果接近 MHA，K、V 存一半：一个 token 一层 4 个数。LLaMA 2、3 用的就是它。', kv:['K 头 1'], groups:[['Q 头 1','Q 头 2']]},
+    mqa:{t:'MQA：所有 Q 头共用同一个 K、V 头。K、V 存得最少：一个 token 一层 4 个数，但效果比 MHA 差一点。', kv:['K 头 1'], groups:[['Q 头 1','Q 头 2']]}
+  };
+  function render(k){
+    var d=data[k];
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr>';
+    d.groups.forEach(function(g,i){
+      html+='<td style="padding:6px;vertical-align:top;"><table style="border-collapse:collapse;text-align:center;"><tr>'+g.map(function(q){return '<td style="border:1px solid #888;padding:8px 12px;background:#2563eb;color:#fff;">'+q+'</td>';}).join('')+'</tr><tr><td style="padding:4px;">↓ 共用</td></tr><tr><td style="border:1px solid #888;padding:8px 12px;background:#7f1d1d;color:#fff;">'+d.kv[i]+'</td></tr></table></td>';
+    });
+    html+='</tr></table>';
+    document.getElementById('gqa-anim').innerHTML=html;
+    document.getElementById('gqa-explain').textContent=d.t;
+  }
+  document.querySelectorAll('.gqa-btn').forEach(function(b){
+    b.addEventListener('click', function(){ render(b.getAttribute('data-k')); });
+  });
+  render('mha');
+})();
+</script>
+
+为什么 K、V 头数重要？推理时每个 token 的 K、V 都要存下来（KV Cache，第七步讲），句子越长、层数越多，存得越多。Q 头数不变，K、V 头数减半，KV Cache 直接减半，显存和速度都省一半。这就是 LLaMA 从 MHA 换成 GQA 的原因。
+
 ## 4.4 FFN（SwiGLU）：前馈网络，逐个 token 独立加工
 
 注意力是让 token 之间互相看，FFN 是每个 token 自己加工自己，token 之间互不影响。公式是：
@@ -1115,8 +1238,97 @@ $x W_1$ 是门，$x W_3$ 是上投影，两个都升维，SiLU 激活门之后�
 
 </details>
 
+## 4.4.5 激活函数小结：ReLU、GELU、SiLU、SwiGLU
+
+FFN 里用的是 SiLU 和 SwiGLU，但面试和论文里还会遇到 ReLU、GELU，一张表分清。点下面任意一个 x，看四个激活函数输出什么。
+
+| 激活函数 | 公式 | 特点 | 谁用 |
+| --- | --- | --- | --- |
+| ReLU | $\max(0, x)$ | 小于 0 全变 0，大于 0 不变；简单但会“死掉” | 早期网络 |
+| GELU | $x \cdot \Phi(x)$ | 小于 0 的数按概率放过去一点，平滑 | BERT、GPT-2 |
+| SiLU | $x \cdot \text{sigmoid}(x)$ | 和 GELU 很像，但更简单 | LLaMA 的 FFN 里 |
+| SwiGLU | $\text{SiLU}(xW_1) \odot (xW_3)$ | 两个输入相乘，门控，效果最好 | LLaMA 的 FFN 整体 |
+
+$\Phi(x)$ 是标准正态分布的累积分布函数，$x$ 越大，$\Phi(x)$ 越接近 1。
+
+### 动画：同一个 x，四个函数输出什么
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="act-anim" style="overflow-x:auto;"></div>
+<p id="act-explain">点下面任意一个 x。</p>
+<button class="act-btn" data-x="-2" style="padding:6px 12px;margin:2px;cursor:pointer;">x = -2</button>
+<button class="act-btn" data-x="-1" style="padding:6px 12px;margin:2px;cursor:pointer;">x = -1</button>
+<button class="act-btn" data-x="0" style="padding:6px 12px;margin:2px;cursor:pointer;">x = 0</button>
+<button class="act-btn" data-x="1" style="padding:6px 12px;margin:2px;cursor:pointer;">x = 1</button>
+<button class="act-btn" data-x="2" style="padding:6px 12px;margin:2px;cursor:pointer;">x = 2</button>
+</div>
+<script>
+(function(){
+  var table={'-2':[0,-0.05,-0.24],'-1':[0,-0.16,-0.27],'0':[0,0,0],'1':[1,0.84,0.73],'2':[2,1.95,1.76]};
+  function render(x){
+    var v=table[x];
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;">x = '+x+'</td><td style="border:1px solid #888;padding:8px 12px;">ReLU</td><td style="border:1px solid #888;padding:8px 12px;">GELU</td><td style="border:1px solid #888;padding:8px 12px;">SiLU</td></tr><tr><td style="padding:6px;">输出</td>'+v.map(function(n){return '<td style="border:1px solid #888;padding:8px 12px;background:#2563eb;color:#fff;">'+n+'</td>';}).join('')+'</tr></table>';
+    document.getElementById('act-anim').innerHTML=html;
+    document.getElementById('act-explain').textContent='x = '+x+'：ReLU 小于 0 直接变 0；GELU 和 SiLU 小于 0 时留一点负数，平滑；大于 0 时三个都接近 x 本身。';
+  }
+  document.querySelectorAll('.act-btn').forEach(function(b){
+    b.addEventListener('click', function(){ render(b.getAttribute('data-x')); });
+  });
+  render('1');
+})();
+</script>
+
+一句话记：**ReLU 是硬截断，GELU 和 SiLU 是软截断，SwiGLU 是门控乘法。** 现代大模型用 SwiGLU，因为它多了一个门，能决定哪些信息放过去。
+
+## 4.5 参数量总账：玩具模型一共有多少参数
+
+把前面所有模块的参数加起来，看看一个模型到底“大”在哪。点“下一步”，一行一行加。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="param-anim" style="overflow-x:auto;"></div>
+<p id="param-explain">点“下一步”开始加。</p>
+<button id="param-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一步 →</button>
+<button id="param-all" style="padding:6px 12px;margin:2px;cursor:pointer;">全部加完</button>
+<button id="param-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重置</button>
+</div>
+<script>
+(function(){
+  var rows=[
+    ['词嵌入 Embedding', '8 个词 × 4 维', 32],
+    ['块 1：两个 RMSNorm', '4 + 4', 8],
+    ['块 1：注意力 W_Q、W_K、W_V、W_O', '4×4 × 4 个', 64],
+    ['块 1：FFN W_1、W_3、W_2', '4×2 + 4×2 + 2×4', 24],
+    ['块 2：和块 1 一模一样', '8 + 64 + 24', 96],
+    ['最终 RMSNorm', '4', 4],
+    ['输出头 LM Head', '8 个词 × 4 维', 32]
+  ];
+  var idx=0;
+  function render(){
+    var total=0;
+    var html='<table style="border-collapse:collapse;"><tr><td style="border:1px solid #888;padding:8px 12px;font-weight:bold;">模块</td><td style="border:1px solid #888;padding:8px 12px;font-weight:bold;">算法</td><td style="border:1px solid #888;padding:8px 12px;font-weight:bold;">参数</td></tr>';
+    for(var i=0;i<idx;i++){
+      total+=rows[i][2];
+      html+='<tr><td style="border:1px solid #888;padding:8px 12px;">'+rows[i][0]+'</td><td style="border:1px solid #888;padding:8px 12px;">'+rows[i][1]+'</td><td style="border:1px solid #888;padding:8px 12px;text-align:center;">'+rows[i][2]+'</td></tr>';
+    }
+    if(idx>=rows.length) html+='<tr><td colspan="2" style="border:1px solid #888;padding:8px 12px;font-weight:bold;">总计</td><td style="border:1px solid #888;padding:8px 12px;text-align:center;font-weight:bold;">'+total+'</td></tr>';
+    html+='</table>';
+    document.getElementById('param-anim').innerHTML=html;
+    document.getElementById('param-explain').textContent = idx===0 ? '点“下一步”开始加。' : idx>=rows.length ? '总计 260 个参数。如果输出头和词嵌入共用同一张表（权重绑定），少 32 个，是 228 个。' : '已加 '+idx+' 行，当前总计 '+total+' 个参数。';
+  }
+  document.getElementById('param-next').addEventListener('click', function(){ if(idx<rows.length){ idx++; render(); } });
+  document.getElementById('param-all').addEventListener('click', function(){ idx=rows.length; render(); });
+  document.getElementById('param-reset').addEventListener('click', function(){ idx=0; render(); });
+  render();
+})();
+</script>
+
+两个结论：
+
+- **玩具模型里注意力比 FFN 大**：注意力 64 个，FFN 24 个，是因为玩具的 d_ff 只设了 2。真实模型里 d_ff 是 d_model 的好几倍（LLaMA 是 2.7 倍左右），FFN 参数占三分之二，是真正的大户。
+- **层数一乘，参数就翻倍**：2 层是 260 个，70 层就是几十亿。参数量 = 每层参数 × 层数 + 嵌入 + 输出头。
+
 ---
 
-下一步：[第五步：拼成完整的模型](/posts/llm-study-notes-inference/)（还没写，先回目录）
+下一步：[第五步：拼成完整的模型](/posts/llm-study-notes-inference-full-model/)
 
 回目录：[大模型推理](/posts/llm-study-notes-inference/)
