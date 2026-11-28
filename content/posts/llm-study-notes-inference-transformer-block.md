@@ -170,6 +170,61 @@ $g$ 是模型自己学出来的：归一化把所有维度拉到同一量级，$
 | 计算量 | 多一步 | 少一步 |
 | 现在谁用 | 原始 Transformer | LLaMA、GPT 等现代模型 |
 
+### 为什么不用 BatchNorm
+
+归一化还有一种叫 BatchNorm（批量归一化），在图像网络里很常见，但 Transformer 不用它。区别只在**沿哪个方向算均值**：
+
+|  | BatchNorm | LayerNorm / RMSNorm |
+| --- | --- | --- |
+| 沿哪个方向算 | 沿 batch 方向：同一维（同一列），算所有 token 的均值 | 沿特征方向：一个 token 的一行，算它 4 个数的均值 |
+| 依赖什么 | 依赖同一批里的其他样本 | 只依赖自己这一个 token |
+| 推理时 batch=1 | 算不出来，1 个样本没有均值可算 | 没问题，每个 token 自己算自己的 |
+
+点下面两个表，看均值是沿哪条线算的。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="bn-anim" style="overflow-x:auto;"></div>
+<p id="bn-explain">点下面两个按钮。</p>
+<button class="bn-btn" data-k="bn" style="padding:6px 12px;margin:2px;cursor:pointer;">BatchNorm：按列算</button>
+<button class="bn-btn" data-k="ln" style="padding:6px 12px;margin:2px;cursor:pointer;">LayerNorm：按行算</button>
+</div>
+<script>
+(function(){
+  var data={
+    bn:{t:'BatchNorm：算第 1 列的均值，要把猫、吃、鱼三个 token 的第 1 个数加起来：(2 + 0 + 1) / 3 = 1。均值依赖同一批里的其他 token，batch 变了，均值就变了。', hl:'col'},
+    ln:{t:'LayerNorm：算猫这一行的均值，只用猫自己的 4 个数：(2 + 2 - 2 - 2) / 4 = 0。均值只依赖自己，batch 里有几个 token、句子多长，都不影响。', hl:'row'}
+  };
+  var rows=[[2,2,-2,-2],[0,3,0,4],[1,1,1,1]];
+  function render(k){
+    var d=data[k];
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;"></td><td style="padding:6px;">第 1 维</td><td style="padding:6px;">第 2 维</td><td style="padding:6px;">第 3 维</td><td style="padding:6px;">第 4 维</td></tr>';
+    rows.forEach(function(r,i){
+      html+='<tr><td style="padding:6px;">'+['猫','吃','鱼'][i]+'</td>';
+      r.forEach(function(v,j){
+        var on = (d.hl==='col' && j===0) || (d.hl==='row' && i===0);
+        html+='<td style="border:1px solid #888;padding:8px 12px;background:'+(on?'#2563eb':'#fff')+';color:'+(on?'#fff':'#000')+';">'+v+'</td>';
+      });
+      html+='</tr>';
+    });
+    html+='</table>';
+    document.getElementById('bn-anim').innerHTML=html;
+    document.getElementById('bn-explain').textContent=d.t;
+  }
+  document.querySelectorAll('.bn-btn').forEach(function(b){
+    b.addEventListener('click', function(){ render(b.getAttribute('data-k')); });
+  });
+  render('bn');
+})();
+</script>
+
+三个原因，一句话一个：
+
+- **推理时 batch 经常是 1**：一个人问一句话，batch 里只有 1 个样本，BatchNorm 按列算均值，1 个数没有均值可算。
+- **句子长短不一**：短句子要补 0（Padding），补的 0 会污染按列算的均值，LayerNorm 按行算，补 0 的位置根本不参与。
+- **训练和推理不一致**：BatchNorm 训练用当前 batch 的均值，推理用训练时攒下来的全局均值，两边不一样；LayerNorm 训练推理完全一样，每个 token 自己算。
+
+所以 Transformer 用 LayerNorm / RMSNorm，不用 BatchNorm。
+
 ### 自测：RMSNorm 过关了吗
 
 **第 1 题**：Token 1 [0, 3, 0, 4] 的均方根是多少？归一化后第一格是多少？
@@ -511,6 +566,99 @@ d=4，位置 0、1、2，点“播放”看每一格是怎么算出来的。
 | 相对位置 | 靠模型自己学 | 天生就是相对的，点积只看位置差 |
 | 现在谁用 | 原始 Transformer | LLaMA、GPT 等现代模型 |
 
+### 可学习位置编码：位置向量让模型自己学
+
+正弦位置编码是写死的公式，还有一种是**可学习位置编码**：位置向量本身就是参数，训练的时候学出来。
+
+$x = E + P[pos]$，$P$ 是一张表，位置 0、1、2 各有一行，训练之前随机初始化，训练之后长成什么样，模型自己定。
+
+| 位置 | 第 1 维 | 第 2 维 | 第 3 维 | 第 4 维 |
+| --- | --- | --- | --- | --- |
+| 0 | 0.1 | 0.2 | -0.1 | 0.3 |
+| 1 | -0.2 | 0.1 | 0.4 | 0.0 |
+| 2 | 0.3 | -0.3 | 0.1 | 0.2 |
+
+点下面任意一个位置，看它加到嵌入上是什么。
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="lpe-anim" style="overflow-x:auto;"></div>
+<p id="lpe-explain">点下面任意一个位置。</p>
+<button class="lpe-btn" data-p="0" style="padding:6px 12px;margin:2px;cursor:pointer;">位置 0（猫）</button>
+<button class="lpe-btn" data-p="1" style="padding:6px 12px;margin:2px;cursor:pointer;">位置 1（吃）</button>
+<button class="lpe-btn" data-p="2" style="padding:6px 12px;margin:2px;cursor:pointer;">位置 2（鱼）</button>
+<button class="lpe-btn" data-p="513" style="padding:6px 12px;margin:2px;cursor:pointer;">位置 513</button>
+</div>
+<script>
+(function(){
+  var E=[[0.2,-0.5,0.8,0.1],[-0.3,0.6,0.2,0.9],[0.7,0.1,-0.4,0.3]];
+  var P=[[0.1,0.2,-0.1,0.3],[-0.2,0.1,0.4,0.0],[0.3,-0.3,0.1,0.2]];
+  var words=['猫','吃','鱼'];
+  function render(p){
+    var html;
+    if(p>=3){
+      html='<p>位置 513：这张表只学到了位置 511（训练时最大长度 512），位置 513 没有向量，加不上去。这就是可学习位置编码的硬伤：<strong>超过训练长度就没法用</strong>。</p>';
+      document.getElementById('lpe-anim').innerHTML=html;
+      document.getElementById('lpe-explain').textContent='位置 513 超出训练长度，表里没有这一行。';
+      return;
+    }
+    var sum=E[p].map(function(v,i){return Math.round((v+P[p][i])*10)/10;});
+    html='<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;">嵌入 E</td>'+E[p].map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;">'+v+'</td>';}).join('')+'</tr>';
+    html+='<tr><td style="padding:6px;">+ 位置 P</td>'+P[p].map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;background:#fef3c7;">'+v+'</td>';}).join('')+'</tr>';
+    html+='<tr><td style="padding:6px;">= 输入 x</td>'+sum.map(function(v){return '<td style="border:1px solid #888;padding:8px 12px;background:#2563eb;color:#fff;">'+v+'</td>';}).join('')+'</tr></table>';
+    document.getElementById('lpe-anim').innerHTML=html;
+    document.getElementById('lpe-explain').textContent='位置 '+p+'（'+words[p]+'）：嵌入加上学出来的位置向量，得到输入。位置向量是训练学出来的，不是公式算的。';
+  }
+  document.querySelectorAll('.lpe-btn').forEach(function(b){
+    b.addEventListener('click', function(){ render(+b.getAttribute('data-p')); });
+  });
+  render(0);
+})();
+</script>
+
+|  | 正弦位置编码 | 可学习位置编码 | RoPE |
+| --- | --- | --- | --- |
+| 位置信息从哪来 | 公式算的 | 训练学出来的 | 算 Q、K 时旋转 |
+| 超过训练长度 | 能用，公式一直能算 | 不能用，表里没这一行 | 能用，但角度超出训练范围会变差 |
+| 谁用 | 原始 Transformer | BERT、GPT-2 | LLaMA、GPT 等现代模型 |
+
+### ALiBi 与长上下文：位置不够长怎么办
+
+模型训练时最多看过 512 个词，推理时给它 2048 个词，位置编码怎么办？有三招：
+
+**第一招：ALiBi，不用位置向量，直接在分数上扣分。**
+
+$\text{分数} = q \cdot k - m \times |i - j|$
+
+$i$、$j$ 是两个词的位置，$|i - j|$ 是它们隔了几个词，$m$ 是每个头的斜率。隔得越远，扣得越多，远的词天生就不受重视。位置信息不在向量里，在分数的扣分里。
+
+拿头 1（斜率 $m = 0.5$）的 3 个词算一遍扣分表：
+
+| $i \backslash j$ | 0（猫） | 1（吃） | 2（鱼） |
+| --- | --- | --- | --- |
+| 0（猫） | 0 | -0.5 | -1.0 |
+| 1（吃） | -0.5 | 0 | -0.5 |
+| 2（鱼） | -1.0 | -0.5 | 0 |
+
+对角线是自己看自己，距离 0，不扣分；隔一个词扣 0.5，隔两个词扣 1.0。ALiBi 不用学位置向量，也不用公式算位置，长度随便多长都能用，BLOOM、MPT 用的就是它。
+
+**第二招：滑窗注意力，只看附近的词。**
+
+每个词只看前面 $w$ 个词，窗口外的直接不看。窗口 $w = 2$，3 个词的注意力是这样：
+
+|  | 猫 | 吃 | 鱼 |
+| --- | --- | --- | --- |
+| 猫 | 看 | 不看 | 不看 |
+| 吃 | 看 | 看 | 不看 |
+| 鱼 | 不看 | 看 | 看 |
+
+计算量从 $O(n^2)$ 降到 $O(n \times w)$，长文本算得动。代价是远的词永远看不到，Mistral 的滑窗注意力就是这招。
+
+**第三招：位置插值，把长句子压缩回训练长度。**
+
+训练长度 512，推理要 2048，位置 0–2047 直接除以 4，变成 0–511.75，塞进模型学过的范围里。RoPE 的角度也跟着缩小，模型看到的角度都在训练范围内。这叫位置插值（Position Interpolation），不用重新训练就能把上下文拉长 4 倍。
+
+一句话记：**ALiBi 是扣分，滑窗是只看附近，位置插值是把位置压缩回去。** 三招都是为了解决同一个问题：训练时短，推理时长的句子怎么办。
+
 ### 自测：RoPE 过关了吗
 
 **第 1 题**：RoPE 的公式是什么？$R^i$ 是什么样的矩阵？
@@ -796,6 +944,53 @@ function matAnim(p, A, BT, C, names){
 
 “猫”最关注“鱼”（2.83），“鱼”也最关注“鱼”（2.12）。头 2 同理，算法一模一样，只是用的列不同。
 
+### 为什么除以 $\sqrt{d_k}$：不除，Softmax 就饱和了
+
+Q、K 里的每个数都差不多是均值 0、方差 1 的随机数。两个向量点积，是 $d_k$ 个数相乘再相加：方差是 $d_k$ 个 1 加起来，等于 $d_k$，标准差是 $\sqrt{d_k}$。
+
+$d_k$ 越大，分数的波动越大：
+
+| $d_k$ | 分数标准差 | 分数大概范围 |
+| --- | --- | --- |
+| 2（玩具模型） | 1.41 | ±3 |
+| 64（真实模型） | 8 | ±16 |
+
+分数到了 ±16，Softmax 会怎么样？拿一组分数 [4, 0, -4] 算两遍：
+
+### 动画：不除和除，Softmax 差多少
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="scale-anim" style="overflow-x:auto;"></div>
+<p id="scale-explain">点下面两个按钮。</p>
+<button class="scale-btn" data-k="raw" style="padding:6px 12px;margin:2px;cursor:pointer;">不除：分数 [4, 0, -4]</button>
+<button class="scale-btn" data-k="scaled" style="padding:6px 12px;margin:2px;cursor:pointer;">除以 √4 = 2：分数 [2, 0, -2]</button>
+</div>
+<script>
+(function(){
+  var data={
+    raw:{p:[0.98,0.02,0.00], t:'不除：Softmax 之后第一个词概率 0.98，第三个词 0.00。分布太尖了，几乎只看第一个词，其他词的梯度接近 0，学不动。这叫饱和。'},
+    scaled:{p:[0.87,0.12,0.02], t:'除以 √d_k：第一个词概率 0.87，第二个 0.12，第三个 0.02。分布软下来了，每个词都有梯度，学得动。'}
+  };
+  function bar(p){
+    var max=0.98;
+    return '<div style="display:flex;align-items:flex-end;height:60px;gap:4px;">'+p.map(function(v,i){
+      var h=Math.round(v/max*60);
+      return '<div style="flex:1;text-align:center;"><div style="height:'+h+'px;background:'+(i===0?'#2563eb':'#94a3b8')+';"></div><div style="font-size:11px;">'+v+'</div></div>';
+    }).join('')+'</div><div style="display:flex;gap:4px;">'+p.map(function(_,i){return '<div style="flex:1;text-align:center;font-size:11px;">词 '+(i+1)+'</div>';}).join('')+'</div>';
+  }
+  function render(k){
+    document.getElementById('scale-anim').innerHTML=bar(data[k].p);
+    document.getElementById('scale-explain').textContent=data[k].t;
+  }
+  document.querySelectorAll('.scale-btn').forEach(function(b){
+    b.addEventListener('click', function(){ render(b.getAttribute('data-k')); });
+  });
+  render('raw');
+})();
+</script>
+
+一句话记：**除以 $\sqrt{d_k}$ 是把分数的波动拉回 1 附近，Softmax 不饱和，梯度才传得下去。** 玩具模型 $d_k = 2$，除以 $\sqrt{2} = 1.41$，就是动画 4 里那个 1.41。
+
 ## 第三步：遮罩 + Softmax，变成权重
 
 解码器是自回归的：生成第 i 个词时，只能看前面的词，不能看后面的。所以分数矩阵的上三角要遮掉，变成 -∞，Softmax 之后就是 0。
@@ -879,6 +1074,73 @@ function matAnim(p, A, BT, C, names){
 | 鱼 | 0.25 | 0.25 | 0.5 |
 
 每一行加起来都是 1。“猫”只能看自己，“吃”看猫和自己各一半，“鱼”看猫、吃各 0.25，看自己 0.5。
+
+### Padding 掩码：短句子补的 0，不能参与注意力
+
+因果掩码防的是“看未来”，Padding 掩码防的是“看空气”。一批句子长短不一，要拼成一个 batch 一起算，短的后面要补 0（PAD token）凑齐长度：
+
+|  | token 1 | token 2 | token 3 |
+| --- | --- | --- | --- |
+| 句子 A | 猫 | 吃 | 鱼 |
+| 句子 B | 猫 | 吃 | [PAD] |
+
+[PAD] 不是词，是凑数的占位符。注意力不能看它，它也不能看别人。做法和因果掩码一样：[PAD] 所在的行和列，分数都改成 -inf。
+
+拿句子 B 的分数表算一遍。遮罩之前：
+
+|  | 猫 | 吃 | [PAD] |
+| --- | --- | --- | --- |
+| 猫 | 2 | 1 | 0.5 |
+| 吃 | 1 | 2 | 0.3 |
+| [PAD] | 0.5 | 0.3 | 1 |
+
+### 动画：Padding 掩码怎么盖
+
+<div style="border:1px solid #888;padding:14px;border-radius:8px;">
+<div id="pad-anim" style="overflow-x:auto;"></div>
+<p id="pad-explain">点“下一步”开始。</p>
+<button id="pad-prev" style="padding:6px 12px;margin:2px;cursor:pointer;">← 上一步</button>
+<button id="pad-next" style="padding:6px 12px;margin:2px;cursor:pointer;">下一步 →</button>
+<button id="pad-reset" style="padding:6px 12px;margin:2px;cursor:pointer;">重置</button>
+</div>
+<script>
+(function(){
+  var names=['猫','吃','[PAD]'];
+  var raw=[[2,1,0.5],[1,2,0.3],[0.5,0.3,1]];
+  var stages=[
+    {t:'第 0 步：遮罩之前。分数表 3 行 × 3 列，[PAD] 那一行一列都还在。', m:[[0,0,0],[0,0,0],[0,0,0]], w:null},
+    {t:'第 1 步：盖掉 [PAD] 那一列。猫和吃不能看 [PAD]，分数改成 -inf。', m:[[0,0,1],[0,0,1],[0,0,1]], w:null},
+    {t:'第 2 步：盖掉 [PAD] 那一行。[PAD] 自己也不能看别人，整行改成 -inf。', m:[[0,0,1],[0,0,1],[1,1,1]], w:null},
+    {t:'第 3 步：Softmax 之后。猫那一行权重是 [0.73, 0.27, 0]，[PAD] 的权重是 0；[PAD] 那一行的输出直接置 0，不参与后面的计算。', m:[[0,0,1],[0,0,1],[1,1,1]], w:[[0.73,0.27,0],[0.27,0.73,0],[0,0,0]]}
+  ];
+  var idx=0;
+  function render(){
+    var s=stages[idx];
+    var html='<table style="border-collapse:collapse;text-align:center;"><tr><td style="padding:6px;"></td>'+names.map(function(n){return '<td style="padding:6px;">'+n+'</td>';}).join('')+'</tr>';
+    for(var i=0;i<3;i++){
+      html+='<tr><td style="padding:6px;">'+names[i]+'</td>';
+      for(var j=0;j<3;j++){
+        var masked=s.m[i][j]===1;
+        var v = s.w ? s.w[i][j] : (masked ? '-inf' : raw[i][j]);
+        html+='<td style="border:1px solid #888;padding:8px 12px;background:'+(masked?'#7f1d1d':s.w?'#2563eb':'#fff')+';color:'+(masked||s.w?'#fff':'#000')+';">'+v+'</td>';
+      }
+      html+='</tr>';
+    }
+    html+='</table>';
+    document.getElementById('pad-anim').innerHTML=html;
+    document.getElementById('pad-explain').textContent=s.t;
+  }
+  document.getElementById('pad-next').addEventListener('click', function(){ if(idx<stages.length-1){ idx++; render(); } });
+  document.getElementById('pad-prev').addEventListener('click', function(){ if(idx>0){ idx--; render(); } });
+  document.getElementById('pad-reset').addEventListener('click', function(){ idx=0; render(); });
+  render();
+})();
+</script>
+
+两点记住：
+
+- **因果掩码和 Padding 掩码可以叠加**：一个防看未来，一个防看空气，两个都是把分数改成 -inf，Softmax 之后权重就是 0。
+- **[PAD] 的输出直接置 0**：它那一行全是 -inf，Softmax 算不出来，干脆不要它的输出，后面算损失的时候也不算它。
 
 ## 第四步：加权求和，拿权重去乘 V
 
